@@ -814,10 +814,10 @@ struct ContentView: View {
     /// The native Menu reserves an OS-controlled icon column. Keep the left
     /// and right popovers on one compact set of optical layout metrics.
     private func compactPopup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 0) {
             content()
         }
-        .padding(6)
+        .padding(5)
         .frame(width: 250)
         .presentationCompactAdaptation(.popover)
     }
@@ -844,7 +844,7 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .frame(minHeight: 44)
+            .frame(minHeight: 38)
             .padding(.horizontal, 10)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
