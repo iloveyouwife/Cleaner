@@ -1,0 +1,149 @@
+/*
+ Adapted from YangJiiii/3105's mcm_bridge.m (GPL-3.0-or-later).
+ Only read-only MCM discovery is retained. No MobileHouseArrest identity
+ impersonation, container activation, kernel exploit or AFC services.
+*/
+#import "WCCatalogBridge.h"
+#import <dlfcn.h>
+#import <objc/message.h>
+#import <xpc/xpc.h>
+
+typedef void *(*WCQueryCreate)(void);
+typedef void (*WCQuerySetU64)(void *, uint64_t);
+typedef void (*WCQuerySetXPC)(void *, xpc_object_t);
+typedef void *(*WCQueryGetSingle)(void *);
+typedef bool (*WCQueryIterate)(void *, bool (^)(void *));
+typedef void (*WCQueryFree)(void *);
+typedef const char *(*WCObjectGetString)(void *);
+
+typedef struct {
+    WCQueryCreate create;
+    WCQuerySetU64 setClass, setFlags, setPart;
+    WCQuerySetXPC setIdentifiers;
+    WCQueryGetSingle single;
+    WCQueryIterate iterate;
+    WCQueryFree freeQuery;
+    WCObjectGetString getIdentifier, getPath;
+} WCCatalogAPI;
+
+static WCCatalogAPI WCLoadAPI(void) {
+    WCCatalogAPI api = {0};
+    void *handle = dlopen("/usr/lib/system/libsystem_containermanager.dylib", RTLD_NOW | RTLD_LOCAL);
+    if (!handle) return api;
+#define LOAD(field, name) api.field = (__typeof(api.field))dlsym(handle, name)
+    LOAD(create, "container_query_create");
+    LOAD(setClass, "container_query_set_class");
+    LOAD(setFlags, "container_query_operation_set_flags");
+    LOAD(setPart, "container_query_operation_set_part");
+    LOAD(setIdentifiers, "container_query_set_identifiers");
+    LOAD(single, "container_query_get_single_result");
+    LOAD(iterate, "container_query_iterate_results_sync");
+    LOAD(freeQuery, "container_query_free");
+    LOAD(getIdentifier, "container_object_get_identifier");
+    LOAD(getPath, "container_object_get_path");
+#undef LOAD
+    // Deliberately keep the library loaded while these function pointers are in use.
+    return api;
+}
+
+static id WCInvoke(id object, NSString *method) {
+    SEL selector = NSSelectorFromString(method);
+    if (!object || ![object respondsToSelector:selector]) return nil;
+    return ((id (*)(id, SEL))objc_msgSend)(object, selector);
+}
+
+static BOOL WCValidIdentifier(NSString *value) {
+    if (value.length < 3 || value.length > 255) return NO;
+    NSCharacterSet *chars = [NSCharacterSet characterSetWithCharactersInString:
+                            @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"];
+    return [value rangeOfCharacterFromSet:chars.invertedSet].location == NSNotFound;
+}
+
+static NSString *WCNormalizePath(NSString *path) {
+    if ([path hasPrefix:@"/private/var/"]) return [path substringFromIndex:8];
+    return path ?: @"";
+}
+
+static NSString *WCLookupPath(WCCatalogAPI api, NSString *identifier) {
+    if (!api.create || !api.setClass || !api.setIdentifiers || !api.setFlags ||
+        !api.single || !api.getPath || !api.freeQuery) return nil;
+    void *query = api.create();
+    if (!query) return nil;
+    api.setClass(query, 2);
+    xpc_object_t value = xpc_string_create(identifier.UTF8String);
+    api.setIdentifiers(query, value);
+#if !OS_OBJECT_USE_OBJC
+    xpc_release(value);
+#endif
+    api.setFlags(query, 0x100000000ULL);
+    if (api.setPart) api.setPart(query, 0);
+    void *result = api.single(query);
+    const char *raw = result ? api.getPath(result) : NULL;
+    NSString *path = raw ? [NSString stringWithUTF8String:raw] : nil;
+    api.freeQuery(query);
+    return WCNormalizePath(path);
+}
+
+NSArray<NSDictionary<NSString *, NSString *> *> *WCEnumerateApplicationContainers(NSString **error) {
+    WCCatalogAPI api = WCLoadAPI();
+    NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *apps =
+        [NSMutableDictionary dictionary];
+    NSMutableOrderedSet<NSString *> *identifiers = [NSMutableOrderedSet orderedSet];
+
+    // 3105's read-only MCM class-2 query; do not activate its old exploit.
+    if (api.create && api.setClass && api.setFlags && api.iterate &&
+        api.getIdentifier && api.freeQuery) {
+        void *query = api.create();
+        if (query) {
+            api.setClass(query, 2);
+            api.setFlags(query, 0x100000000ULL);
+            if (api.setPart) api.setPart(query, 0);
+            api.iterate(query, ^bool(void *object) {
+                const char *raw = object ? api.getIdentifier(object) : NULL;
+                NSString *identifier = raw ? [NSString stringWithUTF8String:raw] : nil;
+                if (WCValidIdentifier(identifier)) [identifiers addObject:identifier];
+                return identifiers.count < 1024;
+            });
+            api.freeQuery(query);
+        }
+    }
+
+    // Best-effort LaunchServices names and paths, without linking private frameworks.
+    Class workspaceClass = NSClassFromString(@"LSApplicationWorkspace");
+    id workspace = WCInvoke(workspaceClass, @"defaultWorkspace");
+    NSArray *installed = WCInvoke(workspace, @"allInstalledApplications");
+    if ([installed isKindOfClass:NSArray.class]) {
+        for (id item in installed) {
+            NSString *identifier = WCInvoke(item, @"applicationIdentifier");
+            if (!WCValidIdentifier(identifier)) continue;
+            [identifiers addObject:identifier];
+            NSString *label = WCInvoke(item, @"localizedName");
+            if (!label.length) label = WCInvoke(item, @"applicationLabel");
+            NSURL *url = WCInvoke(item, @"dataContainerURL");
+            NSString *path = [url isKindOfClass:NSURL.class] ? WCNormalizePath(url.path) : @"";
+            apps[identifier] = [@{@"bundleID":identifier,
+                                  @"name":label.length ? label : identifier,
+                                  @"path":path ?: @""} mutableCopy];
+        }
+    }
+
+    for (NSString *identifier in identifiers) {
+        NSString *path = WCLookupPath(api, identifier);
+        NSMutableDictionary *record = apps[identifier] ?: [@{
+            @"bundleID":identifier, @"name":identifier, @"path":@""} mutableCopy];
+        if (path.length) record[@"path"] = path;
+        apps[identifier] = record;
+    }
+
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *result = [NSMutableArray array];
+    for (NSDictionary *record in apps.allValues) {
+        if ([record[@"path"] length]) [result addObject:record];
+    }
+    [result sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [a[@"name"] localizedCaseInsensitiveCompare:b[@"name"]];
+    }];
+    if (!result.count && error) {
+        *error = @"MCM 与 LaunchServices 未返回可用容器路径；可手动填写已知 App 容器 UUID 路径。";
+    }
+    return result;
+}

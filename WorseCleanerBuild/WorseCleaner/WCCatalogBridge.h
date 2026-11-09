@@ -1,0 +1,9 @@
+#import <Foundation/Foundation.h>
+
+NS_ASSUME_NONNULL_BEGIN
+
+/// Read-only container discovery. Does not activate an MCM sandbox extension.
+/// Each dictionary contains bundleID, name, path.
+NSArray<NSDictionary<NSString *, NSString *> *> *WCEnumerateApplicationContainers(NSString * _Nullable * _Nullable error);
+
+NS_ASSUME_NONNULL_END
