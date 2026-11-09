@@ -47,10 +47,12 @@ jobs:
         run: |
           set -euo pipefail
           sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
-          xcodebuild -version
-          xcodebuild -showsdks
-          xcodebuild -version | grep -q '^Xcode 27.0$'
-          xcodebuild -showsdks | grep -q 'iphoneos27.0'
+          xcode_version="$(xcodebuild -version)"
+          sdk_list="$(xcodebuild -showsdks)"
+          echo "$xcode_version"
+          echo "$sdk_list"
+          [[ "$xcode_version" == Xcode\ 27.0* ]]
+          [[ "$sdk_list" == *iphoneos27.0* ]]
 
       - name: Install XcodeGen
         run: brew install xcodegen
