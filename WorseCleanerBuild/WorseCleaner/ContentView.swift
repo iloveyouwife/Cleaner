@@ -713,7 +713,7 @@ struct ContentView: View {
                         HStack(spacing: 8) {
                             settingsIcon("doc.text.magnifyingglass")
                             Text("查看访问诊断日志")
-                                .font(.subheadline)
+                                .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.primary)
                         }
                     }
@@ -862,7 +862,7 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .frame(minHeight: 22)
+            .frame(minHeight: 26)
             .padding(.horizontal, 10)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
