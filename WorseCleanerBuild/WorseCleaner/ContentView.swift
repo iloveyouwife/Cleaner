@@ -845,12 +845,12 @@ struct ContentView: View {
     /// The native Menu reserves an OS-controlled icon column. Keep the left
     /// and right popovers on one compact set of optical layout metrics.
     private func compactPopup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 0) {
             content()
         }
         .padding(.horizontal, 5)
-        .padding(.vertical, 5)
-        .frame(width: UIScreen.main.bounds.width / 2)
+        .padding(.vertical, 3)
+        .frame(width: 250)
         .presentationCompactAdaptation(.popover)
     }
 
@@ -867,16 +867,16 @@ struct ContentView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: menuSymbolSize(icon), height: menuSymbolSize(icon))
-                    .frame(width: 15, height: 15, alignment: .center)
+                    .frame(width: 14, height: 14, alignment: .center)
                     .opacity(symbolVisible ? 1 : 0)
                     .accessibilityHidden(true)
                 Text(title)
-                    .font(.system(size: 15))
+                    .font(.subheadline)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .frame(height: 26)
+            .frame(minHeight: 36)
             .padding(.horizontal, 10)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
@@ -934,8 +934,8 @@ struct ContentView: View {
     /// nominal font size. Keep every symbol within 11–12pt optical bounds.
     private func menuSymbolSize(_ symbol: String) -> CGFloat {
         switch symbol {
-        case "checkmark", "magnifyingglass", "gearshape": return 12
-        default: return 13
+        case "checkmark", "magnifyingglass", "gearshape": return 11
+        default: return 12
         }
     }
 
