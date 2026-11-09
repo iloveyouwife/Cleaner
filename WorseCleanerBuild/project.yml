@@ -29,3 +29,5 @@ targets:
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-lobjc"
+          - "-framework"
+          - "Security"

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - worse-query-cleaner
+      - worse-query-cleaner-fix
   workflow_dispatch:
 
 permissions:

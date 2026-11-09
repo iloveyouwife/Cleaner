@@ -34,13 +34,17 @@
 3. `WorseCleaner/CleanerEngine.swift` 中的 `groupID`
 
 签名时 provisioning profile 必须允许相同的 App Group。仅重签名 IPA、但没有匹配的 App Group entitlement，**不能让漏洞工作**。
+诊断页面现在会读取安装后实际生效的 App Group entitlement，而不是盲信构建时的示例值；如果签名工具更换了组名，可在界面选择实际授权的组。
+**不要选其他 App 正在使用的共享组**：上游 worse_query 会临时替换该组的 Library/Caches，可能影响其他 App，所以界面要求额外确认这是清理器独占的组。
 GitHub Actions 生成的是**未签名编译产物**，无法代替你的签名证书/授权。
 
 ## 功能限制与验证
 
 - 公开仓库自述支持 iOS 26.x / 27.2，**没有在你的 iOS 27.0.1 设备上验证实际缓存读写**。不能据此宣称已成功清理。
-- App 列表读取是最佳努力的只读 MCM / LaunchServices 查询；如果被系统限制，可手动粘贴用户已经取得的容器 UUID 根路径。容器 UUID 可能随重装改变。
+- App 列表读取是最佳努力的只读 MCM / LaunchServices 查询；有时只能列出本工具自身，不能把它误判成设备只有一个 App。
+- 可手动粘贴已知的容器 UUID 根路径，或者选择源于 worse_query 的慢速 pathleak inode 目录发现。后者最多尝试 500 万 inode，结果可能不完整，也可能耗时数分钟。
 - `worse_query` 只提供目录沙盒扩展，不保证所有文件都可写、也不等于越狱/root。
+- 界面按 3105 CleanerView 的搜索、排序、选择、摘要与批量清理结构移植，保留独立的权限诊断入口。
 - 扫描后 App 可能自行生成或改变缓存；清理结果以实际删除数量与二次扫描为准，若出现错误应停止。
 - 这里对 3105 的扫描逻辑增加了严格错误传递：深层目录不可读时扫描会失败；清理如出现失败项也不会被标为完全成功。
 - App 的 `Caches` 和 `tmp` 也可能包含离线数据、登录态或下载内容；请备份后测试，不要首先操作重要 App。

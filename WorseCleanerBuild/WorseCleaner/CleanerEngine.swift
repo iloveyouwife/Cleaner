@@ -30,7 +30,7 @@ enum WCFailure: LocalizedError {
         case .invalidTarget:
             return "路径必须是 /var/mobile/Containers/Data/Application/ 后面紧跟 UUID 的 App 容器根目录。"
         case .noAppGroup:
-            return "签名不包含有效的 App Group。请配置 provisioning profile 和 group.com.example.worsecleaner 授权。"
+            return "当前签名未提供所选 App Group 的访问权限。请检查已签名 IPA 的 entitlements 和 provisioning profile。"
         case .unavailable(let code):
             return "worse_query 未能取得权限（返回码 \(code)）。不执行扫描或删除。"
         case .inaccessible(let item, let code):
@@ -42,8 +42,21 @@ enum WCFailure: LocalizedError {
 }
 
 enum WCFileAccess {
-    // Must match WorseCleaner.entitlements and the App Group in the signing profile.
-    static let groupID = "group.com.example.worsecleaner"
+    // The installed signer may replace the build-time group. Never assume
+    // the example entitlement survived signing.
+    static let buildTimeGroupID = "group.com.example.worsecleaner"
+
+    static func signedGroups() -> [String] {
+        WCSignedAppGroups()
+    }
+
+    static func accessibleGroups() -> [String] {
+        signedGroups().filter {
+            FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: $0
+            ) != nil
+        }
+    }
 
     static func isValidApplicationContainer(_ rawPath: String) -> Bool {
         let path = URL(fileURLWithPath: rawPath).standardizedFileURL.path
@@ -60,11 +73,13 @@ enum WCFileAccess {
         return !uuid.contains("/") && UUID(uuidString: uuid) != nil
     }
 
-    private static func withLease<T>(for target: WCTarget, body: () throws -> T) throws -> T {
+    private static func withLease<T>(
+        for target: WCTarget,
+        groupID: String,
+        body: () throws -> T
+    ) throws -> T {
         guard isValidApplicationContainer(target.path) else { throw WCFailure.invalidTarget }
-        guard FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: groupID
-        ) != nil else {
+        guard accessibleGroups().contains(groupID) else {
             throw WCFailure.noAppGroup
         }
 
@@ -131,8 +146,8 @@ enum WCFileAccess {
         if readableCount == 0 { throw WCFailure.noCacheDirectories }
     }
 
-    static func scan(_ target: WCTarget) throws -> LimitedCleanerUsage {
-        try withLease(for: target) {
+    static func scan(_ target: WCTarget, groupID: String) throws -> LimitedCleanerUsage {
+        try withLease(for: target, groupID: groupID) {
             try checkReadableDirectories(target)
             return try LimitedCleanerService.scan(
                 containerURL: URL(fileURLWithPath: target.path),
@@ -141,8 +156,8 @@ enum WCFileAccess {
         }
     }
 
-    static func clean(_ target: WCTarget) throws -> LimitedCleanerResult {
-        try withLease(for: target) {
+    static func clean(_ target: WCTarget, groupID: String) throws -> LimitedCleanerResult {
+        try withLease(for: target, groupID: groupID) {
             try checkReadableDirectories(target)
             return try LimitedCleanerService.clean(
                 containerURL: URL(fileURLWithPath: target.path),
