@@ -25,10 +25,32 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: WorseCleaner/WorseCleaner-Bridging-Header.h
         INFOPLIST_KEY_CFBundleDisplayName: Cleaner
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: 0.44.0
-        CURRENT_PROJECT_VERSION: 44
+        MARKETING_VERSION: 0.45.0
+        CURRENT_PROJECT_VERSION: 45
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-lobjc"
           - "-framework"
           - "Security"
+
+  CleanerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: CleanerUITests
+    dependencies:
+      - target: WorseCleaner
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.worsecleaner.uitests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  WorseCleaner:
+    build:
+      targets:
+        WorseCleaner: all
+        CleanerUITests: [test]
+    test:
+      targets:
+        - CleanerUITests
