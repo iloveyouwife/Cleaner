@@ -31,6 +31,7 @@ on:
       - worse-query-cleaner-v26
       - worse-query-cleaner-v27
       - worse-query-cleaner-v44
+      - worse-query-cleaner-v45
   workflow_dispatch:
 
 permissions:
@@ -134,11 +135,57 @@ jobs:
           xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
           sleep 3
           xcrun simctl io "$simulator_id" screenshot ui-screenshots/settings-dark.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner || true
+          xcrun simctl ui "$simulator_id" appearance light
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedHome
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-light.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedSelection
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-selected-light.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl ui "$simulator_id" appearance dark
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedHome
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-dark.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl ui "$simulator_id" appearance light
+          if xcrun simctl ui "$simulator_id" content_size accessibility-medium; then
+            xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedHome
+            sleep 3
+            xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-accessibility-medium.png
+            xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+            xcrun simctl ui "$simulator_id" content_size large || true
+          fi
+
+      - name: Capture native toolbar menus with UI tests
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
+          test -n "$simulator_id"
+          xcodebuild test \
+            -project WorseCleanerBuild/WorseCleaner.xcodeproj \
+            -scheme WorseCleaner \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -derivedDataPath "$PWD/DerivedDataUITests" \
+            -resultBundlePath "$PWD/cleaner-ui-tests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+          mkdir -p ui-menu-screenshots
+          xcrun xcresulttool export attachments \
+            --path cleaner-ui-tests.xcresult \
+            --output-path ui-menu-screenshots
 
       - name: Upload layout screenshot
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Cleaner-layout-preview
-          path: ui-screenshots/*.png
+          name: Cleaner-layout-preview-v45
+          path: |
+            ui-screenshots/*.png
+            ui-menu-screenshots/**
           if-no-files-found: ignore
