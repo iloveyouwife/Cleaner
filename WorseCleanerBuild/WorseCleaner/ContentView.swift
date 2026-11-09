@@ -170,24 +170,6 @@ struct ContentView: View {
                                 .contentShape(Rectangle())
                         }
                         .accessibilityLabel("更多选项")
-                        .popover(isPresented: $showingMorePopup, attachmentAnchor: .rect(.bounds),
-                                 arrowEdge: .top) {
-                            compactPopup {
-                                compactPopupAction("补全App名称", icon: "magnifyingglass",
-                                                   enabled: !model.busy) {
-                                    showingMorePopup = false
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                        confirmingOnlineNames = true
-                                    }
-                                }
-                                compactPopupAction("高级设置", icon: "gearshape") {
-                                    showingMorePopup = false
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                        showingAdvancedSettings = true
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -250,6 +232,108 @@ struct ContentView: View {
                 #else
                 model.loadApps()
                 #endif
+            }
+        }
+        .overlay(alignment: .top) {
+            compactPopupOverlay
+        }
+    }
+
+    // Native iOS popovers force a highly rounded outer silhouette on short
+    // menus, even when presentationBackground/presentationCornerRadius are
+    // overridden. The overlay makes the visible 20pt corner radius exact.
+    @ViewBuilder
+    private var compactPopupOverlay: some View {
+        if showingSelectionPopup || showingSortPopup || showingMorePopup {
+            GeometryReader { geometry in
+                ZStack(alignment: .top) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            showingSelectionPopup = false
+                            showingSortPopup = false
+                            showingMorePopup = false
+                        }
+
+                    HStack(alignment: .top, spacing: 0) {
+                        if showingSelectionPopup {
+                            compactPopup { selectionPopupActions }
+                        }
+                        Spacer(minLength: 0)
+                        if showingSortPopup {
+                            compactPopup { sortPopupActions }
+                        } else if showingMorePopup {
+                            compactPopup { morePopupActions }
+                        }
+                    }
+                    .padding(.leading, 10)
+                    .padding(.trailing, 16)
+                    .padding(.top, 16)
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+            }
+        }
+    }
+
+    private var morePopupActions: some View {
+        Group {
+            compactPopupAction("补全App名称", icon: "magnifyingglass",
+                               enabled: !model.busy) {
+                showingMorePopup = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    confirmingOnlineNames = true
+                }
+            }
+            compactPopupAction("高级设置", icon: "gearshape") {
+                showingMorePopup = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    showingAdvancedSettings = true
+                }
+            }
+        }
+    }
+
+    private var sortPopupActions: some View {
+        Group {
+            compactPopupAction("缓存从大到小", icon: "checkmark",
+                               symbolVisible: largestFirst) {
+                largestFirst = true
+                showingSortPopup = false
+            }
+            compactPopupAction("缓存从小到大", icon: "checkmark",
+                               symbolVisible: !largestFirst) {
+                largestFirst = false
+                showingSortPopup = false
+            }
+        }
+    }
+
+    private var selectionPopupActions: some View {
+        Group {
+            compactPopupAction("全选当前列表", icon: "checkmark.circle") {
+                selectedIDs.formUnion(displayedApps.map(\.id))
+                showingSelectionPopup = false
+            }
+            if !selectedIDs.isEmpty {
+                compactPopupAction("取消全选", icon: "circle") {
+                    selectedIDs.removeAll()
+                    showingSelectionPopup = false
+                }
+                compactPopupAction("排除选中的 \(selectedIDs.count) 个 App", icon: "minus.circle") {
+                    let paths = Set(model.apps.filter { selectedIDs.contains($0.id) }.map(\.path))
+                    model.exclude(paths)
+                    selectedIDs.removeAll()
+                    showingSelectionPopup = false
+                }
+            }
+            compactPopupAction(model.excludedPaths.isEmpty
+                               ? "管理已排除 App"
+                               : "管理已排除 App（\(model.excludedPaths.count)）",
+                               icon: "list.bullet") {
+                showingSelectionPopup = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    showingExcluded = true
+                }
             }
         }
     }
@@ -796,41 +880,9 @@ struct ContentView: View {
         }
         .accessibilityLabel("选择操作")
         .disabled(model.busy)
-        .popover(isPresented: $showingSelectionPopup, attachmentAnchor: .rect(.bounds),
-                 arrowEdge: .top) {
-            compactPopup {
-                compactPopupAction("全选当前列表", icon: "checkmark.circle") {
-                    selectedIDs.formUnion(displayedApps.map(\.id))
-                    showingSelectionPopup = false
-                }
-                if !selectedIDs.isEmpty {
-                    compactPopupAction("取消全选", icon: "circle") {
-                        selectedIDs.removeAll()
-                        showingSelectionPopup = false
-                    }
-                    compactPopupAction("排除选中的 \(selectedIDs.count) 个 App", icon: "minus.circle") {
-                        let paths = Set(model.apps.filter { selectedIDs.contains($0.id) }.map(\.path))
-                        model.exclude(paths)
-                        selectedIDs.removeAll()
-                        showingSelectionPopup = false
-                    }
-                }
-                compactPopupAction(model.excludedPaths.isEmpty
-                                   ? "管理已排除 App"
-                                   : "管理已排除 App（\(model.excludedPaths.count)）",
-                                   icon: "list.bullet") {
-                    showingSelectionPopup = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        showingExcluded = true
-                    }
-                }
-            }
-        }
     }
 
-    /// Fit each menu to its content and draw the actual corner treatment.
-    /// iOS does not reliably honor presentationCornerRadius for popovers,
-    /// so use a transparent presentation and our own Settings-like shape.
+    /// The overlay has no system-owned popover mask, so the corners are exact.
     private func compactPopup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             content()
@@ -838,9 +890,10 @@ struct ContentView: View {
         .padding(.horizontal, 13)
         .padding(.vertical, 5)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .strokeBorder(.gray.opacity(0.25), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.12), radius: 14, y: 6)
         .fixedSize(horizontal: true, vertical: true)
-        .presentationCompactAdaptation(.popover)
-        .presentationBackground(.clear)
     }
 
     private func compactPopupAction(_ title: String, icon: String,
@@ -887,21 +940,6 @@ struct ContentView: View {
         }
         .accessibilityLabel("排序")
         .disabled(model.busy)
-        .popover(isPresented: $showingSortPopup, attachmentAnchor: .rect(.bounds),
-                 arrowEdge: .top) {
-            compactPopup {
-                compactPopupAction("缓存从大到小", icon: "checkmark",
-                                   symbolVisible: largestFirst) {
-                    largestFirst = true
-                    showingSortPopup = false
-                }
-                compactPopupAction("缓存从小到大", icon: "checkmark",
-                                   symbolVisible: !largestFirst) {
-                    largestFirst = false
-                    showingSortPopup = false
-                }
-            }
-        }
     }
 
     private func sizeText(_ bytes: Int64) -> String {
