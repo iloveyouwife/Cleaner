@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Shared presentation rules for content rows. System text styles remain
-/// dynamic; only stable icon columns and content spacing use point constants.
+/// Shared presentation rules for content rows. SF Symbols and typography use
+/// Dynamic Type; the platform chooses the icon-to-title spacing for Labels.
 enum CleanerLayout {
-    static let settingsRowSpacing: CGFloat = 10
+    static let settingsAccessorySpacing: CGFloat = 10
 }
 
 struct CleanerSettingsSymbol: View {
@@ -21,9 +21,9 @@ struct CleanerSettingsSymbol: View {
     }
 }
 
-/// A single leading-icon/title layout for every Settings row. The symbol's
-/// 22-point scaled slot follows the first text line, not the combined height
-/// of a title and subtitle (which caused the v45 alignment regression).
+/// Shared native-style Settings row. Center the leading symbol against the
+/// entire title/subtitle block, including when the title spans multiple lines.
+/// Use a semantic Label and the platform's icon/title layout and spacing.
 struct CleanerSettingsLabel: View {
     let symbol: String
     let title: String
@@ -31,11 +31,10 @@ struct CleanerSettingsLabel: View {
     var tint: Color = .primary
     var titleColor: Color = .primary
     var emphasized: Bool = true
+    @ScaledMetric(relativeTo: .body) private var iconColumnWidth: CGFloat = 22
 
     var body: some View {
-        HStack(alignment: .top, spacing: CleanerLayout.settingsRowSpacing) {
-            CleanerSettingsSymbol(name: symbol, tint: tint)
-
+        Label {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(emphasized ? .body.weight(.medium) : .body)
@@ -50,7 +49,11 @@ struct CleanerSettingsLabel: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        } icon: {
+            CleanerSettingsSymbol(name: symbol, tint: tint)
         }
+        .labelStyle(.titleAndIcon)
+        .labelReservedIconWidth(iconColumnWidth)
         .accessibilityElement(children: .combine)
     }
 }

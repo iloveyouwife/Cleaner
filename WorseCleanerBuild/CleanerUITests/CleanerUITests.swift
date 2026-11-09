@@ -79,5 +79,25 @@ final class CleanerUITests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(diagnostics.waitForExistence(timeout: 5), "Missing diagnostics row")
         capture("advanced-settings-diagnostics")
+
+        diagnostics.tap()
+        let signatureGroups = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "签名声明的 App Group")
+        ).firstMatch
+        XCTAssertTrue(signatureGroups.waitForExistence(timeout: 5),
+                      "Diagnostics group should expand and reveal its content")
+        capture("advanced-settings-expanded")
+    }
+
+    func testExcludedAppsEmptyState() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-captureExcludedApps"]
+        app.launch()
+        let emptyState = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "暂无已排除 App")
+        ).firstMatch
+        XCTAssertTrue(emptyState.waitForExistence(timeout: 15),
+                      "Expected system-style empty state")
+        capture("excluded-empty-state")
     }
 }

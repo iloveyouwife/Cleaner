@@ -31,7 +31,7 @@ struct CleanerAdvancedSettingsView: View {
                                 accessStatusPill
                             }
                         } else {
-                            HStack(spacing: CleanerLayout.settingsRowSpacing) {
+                            HStack(spacing: CleanerLayout.settingsAccessorySpacing) {
                                 accessStatusLabel
                                 accessStatusPill
                             }

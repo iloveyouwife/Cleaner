@@ -33,6 +33,7 @@ on:
       - worse-query-cleaner-v44
       - worse-query-cleaner-v45
       - worse-query-cleaner-v46
+      - worse-query-cleaner-v47
   workflow_dispatch:
 
 permissions:
@@ -94,8 +95,8 @@ jobs:
           path: WorseCleaner-iOS27-unsigned.ipa
           if-no-files-found: error
 
-      # Best-effort visual QA for the SwiftUI settings layout. Simulator-only
-      # launch arguments bypass discovery, never the signed-device safeguards.
+      # Required simulator UI regression checks. Screenshot fixtures bypass
+      # discovery only on the simulator, never signed-device safeguards.
       - name: Capture native UI layouts
         run: |
           set -euo pipefail
@@ -136,6 +137,10 @@ jobs:
           sleep 3
           xcrun simctl io "$simulator_id" screenshot ui-screenshots/settings-dark.png
           xcrun simctl terminate "$simulator_id" com.example.worsecleaner || true
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureExcludedApps
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/excluded-dark.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
           xcrun simctl ui "$simulator_id" appearance light
           xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedHome
           sleep 3
@@ -159,6 +164,10 @@ jobs:
             xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
             sleep 3
             xcrun simctl io "$simulator_id" screenshot ui-screenshots/settings-accessibility-medium.png
+            xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+            xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureExcludedApps
+            sleep 3
+            xcrun simctl io "$simulator_id" screenshot ui-screenshots/excluded-accessibility-medium.png
             xcrun simctl terminate "$simulator_id" com.example.worsecleaner
             xcrun simctl ui "$simulator_id" content_size large || true
           fi
@@ -187,7 +196,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Cleaner-layout-preview-v45
+          name: Cleaner-layout-preview-v47
           path: |
             ui-screenshots/*.png
             ui-menu-screenshots/**
