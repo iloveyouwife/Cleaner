@@ -751,8 +751,22 @@ struct ContentView: View {
             List {
                 let excluded = model.apps.filter { model.excludedPaths.contains($0.path) }
                 if excluded.isEmpty {
-                    ContentUnavailableView("暂无已排除 App", systemImage: "eye.slash",
-                                           description: Text("在首页勾选一个或多个 App，再点击左上角的排除选项。"))
+                    Section {
+                        VStack(spacing: 8) {
+                            Image(systemName: "minus.circle")
+                                .font(.system(size: 20, weight: .regular))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24, height: 24)
+                            Text("暂无已排除 App")
+                                .font(.subheadline.weight(.medium))
+                            Text("在首页勾选一个或多个 App，再点击左上角的排除选项。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                    }
                 } else {
                     Section("已排除 App（\(excluded.count)）") {
                         ForEach(excluded) { app in
@@ -831,11 +845,11 @@ struct ContentView: View {
     /// The native Menu reserves an OS-controlled icon column. Keep the left
     /// and right popovers on one compact set of optical layout metrics.
     private func compactPopup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 4) {
             content()
         }
         .padding(.horizontal, 5)
-        .padding(.vertical, 3)
+        .padding(.vertical, 5)
         .frame(width: UIScreen.main.bounds.width / 2)
         .presentationCompactAdaptation(.popover)
     }
@@ -853,11 +867,11 @@ struct ContentView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: menuSymbolSize(icon), height: menuSymbolSize(icon))
-                    .frame(width: 14, height: 14, alignment: .center)
+                    .frame(width: 16, height: 16, alignment: .center)
                     .opacity(symbolVisible ? 1 : 0)
                     .accessibilityHidden(true)
                 Text(title)
-                    .font(.subheadline)
+                    .font(.system(size: 16))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -920,8 +934,8 @@ struct ContentView: View {
     /// nominal font size. Keep every symbol within 11–12pt optical bounds.
     private func menuSymbolSize(_ symbol: String) -> CGFloat {
         switch symbol {
-        case "checkmark", "magnifyingglass", "gearshape": return 11
-        default: return 12
+        case "checkmark", "magnifyingglass", "gearshape": return 13
+        default: return 14
         }
     }
 
