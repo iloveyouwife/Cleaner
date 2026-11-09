@@ -850,7 +850,7 @@ struct ContentView: View {
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 3)
-        .frame(width: 250)
+        .frame(width: UIScreen.main.bounds.width / 2)
         .presentationCompactAdaptation(.popover)
     }
 
