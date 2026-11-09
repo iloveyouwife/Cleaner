@@ -15,6 +15,7 @@ on:
       - worse-query-cleaner-v10
       - worse-query-cleaner-v11
       - worse-query-cleaner-v12
+      - worse-query-cleaner-v13
   workflow_dispatch:
 
 permissions:

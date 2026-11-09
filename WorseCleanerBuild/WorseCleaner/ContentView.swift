@@ -3,6 +3,12 @@ import SwiftUI
 // 3105 CleanerView's layout: search, summary, sortable/selectable app rows,
 // selection menu, bulk action, and confirmation. The backend is worse_query.
 struct ContentView: View {
+    private static let hiddenServiceIDs: Set<String> = [
+        "com.apple.GameOverlayUI", "com.apple.HeadphoneProxService",
+        "com.apple.PassbookUIService", "com.apple.PDUIApp",
+        "com.apple.SIMSetupUIService", "com.apple.webapp"
+    ]
+
     @StateObject private var model = WorseCleanerModel()
     @State private var searchText = ""
     @State private var searchExpanded = false
@@ -15,14 +21,13 @@ struct ContentView: View {
     @State private var showingAdvancedSettings = false
     @State private var showingExcluded = false
     @State private var confirmingOnlineNames = false
-    @State private var showingSystemServices = false
     @State private var showingBundleIDOnly = false
     @State private var showingUnidentifiedContainers = false
 
     private var filteredApps: [WCTarget] {
         let matching = model.apps.filter {
             !model.excludedPaths.contains($0.path) &&
-            (showingSystemServices || !isInternalSystemService($0.bundleID)) && (
+            !isInternalSystemService($0.bundleID) && (
                 searchText.isEmpty ||
                 $0.name.localizedCaseInsensitiveContains(searchText) ||
                 $0.bundleID.localizedCaseInsensitiveContains(searchText) ||
@@ -74,7 +79,7 @@ struct ContentView: View {
 
     private var availableSize: Int64 {
         model.apps.reduce(0) { sum, app in
-            let visible = showingSystemServices || !isInternalSystemService(app.bundleID)
+            let visible = !isInternalSystemService(app.bundleID)
             return sum + ((!visible || model.excludedPaths.contains(app.path))
                 ? 0 : model.usage[app.id]?.totalBytes ?? 0)
         }
@@ -120,39 +125,36 @@ struct ContentView: View {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     sortMenu
                     Button { model.loadApps() } label: {
-                        Image(systemName: "arrow.clockwise")
+                        toolbarIcon("arrow.clockwise")
                     }
                     .disabled(model.busy)
                     .accessibilityLabel("刷新 App 列表")
                     Menu {
-                        Button(showingSystemServices ? "隐藏系统内部服务" : "显示系统内部服务",
-                               systemImage: "gearshape.2") {
-                            showingSystemServices.toggle()
-                            selectedIDs.removeAll()
-                        }
-                        Button("联网补全未识别的 App 名称", systemImage: "text.magnifyingglass") {
+                        Button {
                             confirmingOnlineNames = true
+                        } label: {
+                            menuItem("联网补全 App 名称", icon: "magnifyingglass")
                         }
                         .disabled(model.busy)
-                        Button("管理已排除 App（\(model.excludedPaths.count)）", systemImage: "eye.slash") {
-                            showingExcluded = true
-                        }
-                        Button("高级设置", systemImage: "gearshape") {
+                        Button {
                             showingAdvancedSettings = true
+                        } label: {
+                            menuItem("高级设置", icon: "gearshape")
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        toolbarIcon("ellipsis.circle")
                     }
+                    .accessibilityLabel("更多选项")
                 }
             }
             .sheet(isPresented: $showingAdvancedSettings) { advancedSettingsSheet }
             .sheet(isPresented: $showingExcluded) { excludedAppsSheet }
-            .confirmationDialog("从 Apple 补全 App 名称", isPresented: $confirmingOnlineNames,
+            .confirmationDialog("联网补全 App 名称", isPresented: $confirmingOnlineNames,
                                 titleVisibility: .visible) {
-                Button("向 Apple 查询名称") { model.completeMissingNamesOnline() }
+                Button("联网补全") { model.completeMissingNamesOnline() }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("将向 Apple 的公开商店接口发送未识别 App 的 Bundle ID，仅用于获取软件名称，不上传缓存文件，不下载商店图标。每次最多查询 80 个 App。")
+                Text("将向 Apple 商店发送未识别的 Bundle ID 查询名称，不上传缓存文件；每次最多 80 个。仅适用于已知 Bundle ID 的项目。")
             }
             .alert("确认清理缓存", isPresented: $confirmingClean) {
                 Button("确认删除", role: .destructive) {
@@ -180,7 +182,7 @@ struct ContentView: View {
         Group {
             if searchExpanded || !searchText.isEmpty {
                 HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
+                    contentIcon("magnifyingglass")
                         .foregroundStyle(.secondary)
                     TextField("搜索", text: $searchText)
                         .textInputAutocapitalization(.never)
@@ -197,7 +199,7 @@ struct ContentView: View {
                             searchText = ""
                             searchFocused = true
                         } label: {
-                            Image(systemName: "xmark.circle.fill")
+                            contentIcon("xmark.circle.fill")
                                 .foregroundStyle(.secondary)
                         }
                         .accessibilityLabel("清除搜索")
@@ -209,7 +211,7 @@ struct ContentView: View {
                     searchExpanded = true
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
+                        contentIcon("magnifyingglass")
                         Text("搜索")
                     }
                     .foregroundStyle(.secondary)
@@ -257,8 +259,11 @@ struct ContentView: View {
                     model.scanAll()
                 } label: {
                     HStack(spacing: 12) {
-                        if model.busy { ProgressView() }
-                        else { Image(systemName: "arrow.triangle.2.circlepath") }
+                        if model.busy {
+                            ProgressView().frame(width: 22, height: 22)
+                        } else {
+                            contentIcon("arrow.triangle.2.circlepath")
+                        }
                         VStack(alignment: .leading, spacing: 3) {
                             Text(model.busy ? "扫描中 · \(model.scannedAppCount) / \(model.apps.count)" : "重新扫描缓存")
                                 .font(.subheadline.weight(.semibold))
@@ -269,7 +274,8 @@ struct ContentView: View {
                         Spacer(minLength: 0)
                         if !model.busy {
                             Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 18, height: 22)
                                 .foregroundStyle(.tertiary)
                         }
                     }
@@ -285,9 +291,12 @@ struct ContentView: View {
                 Button {
                     confirmingClean = true
                 } label: {
-                    Label("清理所选 \(selectedIDs.count) 项 · \(sizeText(selectedSize))", systemImage: "trash")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                    HStack(spacing: 8) {
+                        contentIcon("trash")
+                        Text("清理所选 \(selectedIDs.count) 项 · \(sizeText(selectedSize))")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(model.busy || !model.appGroupReady || !model.groupConfirmed || selectedIDs.isEmpty ||
@@ -298,6 +307,7 @@ struct ContentView: View {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.shield")
                     .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 18, height: 18)
                 Text("有限清理模式")
                     .font(.subheadline.weight(.semibold))
             }
@@ -353,6 +363,8 @@ struct ContentView: View {
                     Text("仅识别 Bundle ID（\(bundleIDOnlyApps.count)）")
                     Spacer()
                     Image(systemName: showingBundleIDOnly ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 18, height: 18)
                 }
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -379,6 +391,8 @@ struct ContentView: View {
                     Text("未识别数据容器（\(unidentifiedContainers.count)）")
                     Spacer()
                     Image(systemName: showingUnidentifiedContainers ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 18, height: 18)
                 }
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -422,7 +436,8 @@ struct ContentView: View {
                 Image(systemName: selectedIDs.contains(app.id)
                       ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(selectedIDs.contains(app.id) ? Color.accentColor : Color.secondary)
-                    .font(.system(size: 21))
+                    .font(.system(size: 21, weight: .regular))
+                    .frame(width: 24, height: 24)
             }
             .padding(.vertical, 5)
             .contentShape(Rectangle())
@@ -433,8 +448,11 @@ struct ContentView: View {
 
     private var signingWarning: some View {
         Section {
-            Label("请确认专用 App Group", systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.orange)
+            HStack(spacing: 8) {
+                contentIcon("exclamationmark.triangle")
+                Text("请确认专用 App Group")
+            }
+            .foregroundStyle(.orange)
             Text("首次使用需在右上角「高级设置」确认签名授权的专用 App Group；以后相同组将记住确认。未确认前禁止扫描与删除。")
                 .font(.footnote)
             Button("打开高级设置") { showingAdvancedSettings = true }
@@ -560,25 +578,34 @@ struct ContentView: View {
 
     private var selectionMenu: some View {
         Menu {
-            Button("全选当前列表", systemImage: "checkmark.circle") {
+            Button {
                 selectedIDs.formUnion(displayedApps.map(\.id))
+            } label: {
+                menuItem("全选当前列表", icon: "checkmark.circle")
             }
-            Button("取消全选", systemImage: "circle") {
+            Button {
                 selectedIDs.removeAll()
+            } label: {
+                menuItem("取消全选", icon: "circle")
             }
             Divider()
-            Button("排除选中的 \(selectedIDs.count) 个 App", systemImage: "eye.slash") {
+            Button {
                 let paths = Set(model.apps.filter { selectedIDs.contains($0.id) }.map(\.path))
                 model.exclude(paths)
                 selectedIDs.removeAll()
+            } label: {
+                menuItem("排除选中的 \(selectedIDs.count) 个 App", icon: "eye.slash")
             }
             .disabled(selectedIDs.isEmpty)
-            Button("管理已排除 App（\(model.excludedPaths.count)）", systemImage: "list.bullet") {
+            Button {
                 showingExcluded = true
+            } label: {
+                menuItem("管理已排除 App（\(model.excludedPaths.count)）", icon: "list.bullet")
             }
         } label: {
-            Image(systemName: "checklist")
+            toolbarIcon("checklist")
         }
+        .accessibilityLabel("选择操作")
         .disabled(model.busy)
     }
 
@@ -589,8 +616,9 @@ struct ContentView: View {
                 Text("缓存从小到大").tag(false)
             }
         } label: {
-            Image(systemName: "arrow.up.arrow.down")
+            toolbarIcon("arrow.up.arrow.down")
         }
+        .accessibilityLabel("排序")
         .disabled(model.busy)
     }
 
@@ -599,14 +627,36 @@ struct ContentView: View {
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
+    /// One optical slot per symbol prevents different intrinsic symbol widths
+    /// from shifting toolbar and row alignment. Native menus still apply the
+    /// system's accessibility scaling to their presented icons.
+    private func toolbarIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 19, weight: .medium))
+            .frame(width: 24, height: 24, alignment: .center)
+            .accessibilityHidden(true)
+    }
+
+    private func contentIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 18, weight: .regular))
+            .frame(width: 22, height: 22, alignment: .center)
+            .accessibilityHidden(true)
+    }
+
+    private func menuItem(_ title: String, icon: String) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .regular))
+                .frame(width: 22, height: 22, alignment: .center)
+        }
+    }
+
     private func isInternalSystemService(_ bundleID: String) -> Bool {
-        // These are OS helper containers, not independently launchable
-        // Home Screen apps. Keep them available under the explicit menu.
-        let helperIDs: Set<String> = [
-            "com.apple.GameOverlayUI", "com.apple.HeadphoneProxService",
-            "com.apple.PassbookUIService", "com.apple.PDUIApp",
-            "com.apple.SIMSetupUIService", "com.apple.webapp"
-        ]
-        return helperIDs.contains(bundleID)
+        // These are system helper services, not independently launchable apps.
+        // They stay hidden rather than being offered as cache-cleaning targets.
+        Self.hiddenServiceIDs.contains(bundleID)
     }
 }
