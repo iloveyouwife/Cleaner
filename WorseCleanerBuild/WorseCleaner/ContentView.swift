@@ -268,7 +268,10 @@ struct ContentView: View {
                     }
                     .padding(.leading, 10)
                     .padding(.trailing, 16)
-                    .padding(.top, 16)
+                    // Align the overlay with the toolbar's top edge. The
+                    // former 16pt offset exposed the original toolbar
+                    // symbols above the floating menu on a real-sized view.
+                    .padding(.top, 0)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
             }
@@ -827,6 +830,10 @@ struct ContentView: View {
             .frame(width: 17, height: 17)
             .foregroundStyle(color)
             .frame(width: 20, height: 20, alignment: .center)
+            // The document + magnifier glyph has a narrower visible right
+            // edge than the refresh and shield symbols. A 2pt optical shift
+            // matches their text-to-icon gap without moving the text column.
+            .offset(x: name == "doc.text.magnifyingglass" ? 2 : 0)
             .accessibilityHidden(true)
     }
 
