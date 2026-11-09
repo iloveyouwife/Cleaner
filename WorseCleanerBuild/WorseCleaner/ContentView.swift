@@ -101,12 +101,12 @@ struct ContentView: View {
 
                 List {
                     summarySection
-                    applicationSection
-                    bundleIDOnlySection
-                    unidentifiedContainerSection
                     if !model.appGroupReady || !model.groupConfirmed {
                         signingWarning
                     }
+                    applicationSection
+                    bundleIDOnlySection
+                    unidentifiedContainerSection
                     Section("运行结果") {
                         DisclosureGroup(isExpanded: $showingRunDetails) {
                             Text(model.status)
@@ -186,7 +186,19 @@ struct ContentView: View {
             .onChange(of: model.apps) { _, currentApps in
                 selectedIDs.formIntersection(Set(currentApps.map(\.id)))
             }
-            .task { model.loadApps() }
+            .task {
+                #if targetEnvironment(simulator)
+                // Simulator-only layout QA. Keep the production discovery path
+                // untouched and avoid privileged scans during UI screenshots.
+                if ProcessInfo.processInfo.arguments.contains("-captureAdvancedSettings") {
+                    showingAdvancedSettings = true
+                } else {
+                    model.loadApps()
+                }
+                #else
+                model.loadApps()
+                #endif
+            }
         }
     }
 
@@ -272,7 +284,7 @@ struct ContentView: View {
                 Button {
                     model.scanAll()
                 } label: {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 10) {
                         if model.busy {
                             ProgressView().frame(width: 22, height: 22)
                         } else {
@@ -318,17 +330,18 @@ struct ContentView: View {
             }
             .padding(.vertical, 8)
         } header: {
-            HStack(spacing: 6) {
+            HStack(alignment: .center, spacing: 4) {
                 Image(systemName: "checkmark.shield")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 18, height: 18)
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 16, height: 16, alignment: .center)
+                    .accessibilityHidden(true)
                 Text("有限清理模式")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.footnote.weight(.semibold))
             }
-            .foregroundStyle(.secondary)
+            .foregroundColor(Color(uiColor: .secondaryLabel))
             .textCase(nil)
         } footer: {
-            Text("只清理手动选中项目的 Caches/tmp，不删除 Documents 或整个容器。")
+            Text("仅清理所选项目的 Caches/tmp；保留 Documents 和容器本身。")
         }
     }
 
@@ -468,12 +481,15 @@ struct ContentView: View {
     private var signingWarning: some View {
         Section {
             HStack(spacing: 8) {
-                contentIcon("exclamationmark.triangle")
-                Text("请确认专用 App Group")
+                settingsIcon("exclamationmark.triangle", color: .orange)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("请确认专用 App Group")
+                        .font(.subheadline.weight(.semibold))
+                    Text("未确认前无法扫描或清理缓存。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .foregroundStyle(.orange)
-            Text("首次使用需在右上角「高级设置」确认签名授权的专用 App Group；以后相同组将记住确认。未确认前禁止扫描与删除。")
-                .font(.footnote)
             Button("打开高级设置") { showingAdvancedSettings = true }
         }
     }
@@ -482,7 +498,7 @@ struct ContentView: View {
         NavigationStack {
             Form {
                 Section("访问状态") {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 8) {
                         settingsIcon("checkmark.shield", color: .accentColor)
                         VStack(alignment: .leading, spacing: 3) {
                             Text("缓存访问权限")
@@ -508,8 +524,12 @@ struct ContentView: View {
 
                 Section {
                     if accessibleGroups.isEmpty {
-                        Label("没有可选的 App Group", systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            settingsIcon("exclamationmark.triangle", color: .orange)
+                            Text("没有可选的 App Group")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
                         Picker("专用 App Group", selection: $model.groupID) {
                             ForEach(accessibleGroups, id: \.self) { group in
@@ -527,17 +547,14 @@ struct ContentView: View {
                 } header: {
                     Text("App Group 设置")
                 } footer: {
-                    Label("仅确认独立专用组。清理过程会临时替换该组的缓存目录，使用共享组可能影响其他 App。",
-                          systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    warningFootnote("只确认 Cleaner 独占的 App Group。清理时会临时替换该组缓存目录；共享组可能影响其他 App。")
                 }
 
                 Section {
                     Button {
                         model.deepDiscoverApps()
                     } label: {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 8) {
                             settingsIcon("arrow.triangle.2.circlepath")
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("深度发现 App 容器")
@@ -560,7 +577,7 @@ struct ContentView: View {
                 } header: {
                     Text("扫描工具")
                 } footer: {
-                    Text("首页已自动执行深度发现。此处用于手动重试，结果可能不完整。")
+                    Text("首页已自动执行发现；此处用于重试，结果可能不完整。")
                 }
 
                 Section {
@@ -572,14 +589,17 @@ struct ContentView: View {
                         model.addManualPath(manualPath.trimmingCharacters(in: .whitespacesAndNewlines))
                         manualPath = ""
                     } label: {
-                        Label("添加 App 容器", systemImage: "plus.circle")
-                            .font(.subheadline.weight(.medium))
+                        HStack(spacing: 8) {
+                            settingsIcon("plus.circle", color: .accentColor)
+                            Text("添加 App 容器")
+                                .font(.subheadline.weight(.medium))
+                        }
                     }
                     .disabled(manualPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
                 } header: {
                     Text("手动添加")
                 } footer: {
-                    Text("仅添加已确认来源的容器路径；添加后仍需扫描验证权限。")
+                    Text("只添加来源明确的容器路径；添加后仍需扫描验证权限。")
                 }
 
                 Section {
@@ -633,14 +653,17 @@ struct ContentView: View {
                         }
                         .padding(.top, 6)
                     } label: {
-                        Label("查看访问诊断日志", systemImage: "doc.text.magnifyingglass")
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
+                        HStack(spacing: 8) {
+                            settingsIcon("doc.text.magnifyingglass")
+                            Text("查看访问诊断日志")
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                        }
                     }
                 } header: {
                     Text("诊断信息")
                 } footer: {
-                    Text("日志仅用于排查权限问题。系统拒绝元数据访问时，可能无法显示 App 名称。")
+                    Text("日志用于排查权限问题；系统拒绝元数据访问时可能无法识别 App 名称。")
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -656,10 +679,26 @@ struct ContentView: View {
 
     private func settingsIcon(_ name: String, color: Color = .primary) -> some View {
         Image(systemName: name)
-            .font(.system(size: 18, weight: .medium))
+            .font(.system(size: 17, weight: .medium))
             .foregroundStyle(color)
-            .frame(width: 24, height: 24, alignment: .center)
+            .frame(width: 20, height: 20, alignment: .center)
             .accessibilityHidden(true)
+    }
+
+    /// A fixed, narrow icon slot keeps multi-line notes aligned with their
+    /// own text rather than the wide icon column of Form's native Label style.
+    private func warningFootnote(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 14, height: 17, alignment: .top)
+                .accessibilityHidden(true)
+            Text(message)
+                .font(.caption)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundColor(Color(uiColor: .secondaryLabel))
     }
 
     private var excludedAppsSheet: some View {

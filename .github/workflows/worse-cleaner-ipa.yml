@@ -17,6 +17,7 @@ on:
       - worse-query-cleaner-v12
       - worse-query-cleaner-v13
       - worse-query-cleaner-v14
+      - worse-query-cleaner-v15
   workflow_dispatch:
 
 permissions:
@@ -69,3 +70,36 @@ jobs:
           name: WorseCleaner-iOS27-unsigned
           path: WorseCleaner-iOS27-unsigned.ipa
           if-no-files-found: error
+
+      # Best-effort visual QA for the SwiftUI settings layout. Simulator-only
+      # launch arguments bypass discovery, never the signed-device safeguards.
+      - name: Capture advanced settings layout
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project WorseCleanerBuild/WorseCleaner.xcodeproj \
+            -scheme WorseCleaner \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$PWD/DerivedDataSimulator" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
+          test -n "$simulator_id"
+          xcrun simctl boot "$simulator_id" || true
+          xcrun simctl bootstatus "$simulator_id" -b
+          xcrun simctl install "$simulator_id" DerivedDataSimulator/Build/Products/Release-iphonesimulator/WorseCleaner.app
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
+          sleep 3
+          mkdir -p ui-screenshots
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/advanced-settings.png
+
+      - name: Upload layout screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cleaner-layout-preview
+          path: ui-screenshots/*.png
+          if-no-files-found: ignore
