@@ -385,7 +385,7 @@ struct ContentView: View {
     private var signingWarning: some View {
         Section {
             HStack(spacing: CleanerLayout.settingsRowSpacing) {
-                settingsIcon("exclamationmark.triangle", color: .orange)
+                CleanerSettingsSymbol(name: "exclamationmark.triangle", tint: .orange)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("请确认 App Group")
                         .font(.body.weight(.medium))
