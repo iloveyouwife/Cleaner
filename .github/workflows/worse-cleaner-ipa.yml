@@ -24,6 +24,7 @@ on:
       - worse-query-cleaner-v19
       - worse-query-cleaner-v20
       - worse-query-cleaner-v21
+      - worse-query-cleaner-v22
   workflow_dispatch:
 
 permissions:
@@ -102,9 +103,9 @@ jobs:
           sleep 3
           xcrun simctl io "$simulator_id" screenshot ui-screenshots/toolbar-home.png
           xcrun simctl terminate "$simulator_id" com.example.worsecleaner
-          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
-          sleep 3
-          xcrun simctl io "$simulator_id" screenshot ui-screenshots/advanced-settings.png
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureMorePopup
+          sleep 4
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/more-popup.png
           xcrun simctl terminate "$simulator_id" com.example.worsecleaner
           xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureSortPopup
           sleep 3
@@ -118,9 +119,9 @@ jobs:
           sleep 3
           xcrun simctl io "$simulator_id" screenshot ui-screenshots/selection-popup-selected.png
           xcrun simctl terminate "$simulator_id" com.example.worsecleaner
-          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureMorePopup
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
           sleep 3
-          xcrun simctl io "$simulator_id" screenshot ui-screenshots/more-popup.png
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/advanced-settings.png
 
       - name: Upload layout screenshot
         if: always()

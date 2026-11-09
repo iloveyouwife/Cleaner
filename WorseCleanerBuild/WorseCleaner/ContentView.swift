@@ -139,35 +139,43 @@ struct ContentView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     selectionMenu
                 }
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    sortMenu
-                    Button { model.loadApps() } label: {
-                        toolbarIcon("arrow.clockwise")
-                    }
-                    .disabled(model.busy)
-                    .accessibilityLabel("刷新 App 列表")
-                    Button {
-                        showingSelectionPopup = false
-                        showingSortPopup = false
-                        showingMorePopup.toggle()
-                    } label: {
-                        toolbarIcon("ellipsis.circle")
-                    }
-                    .accessibilityLabel("更多选项")
-                    .popover(isPresented: $showingMorePopup, attachmentAnchor: .rect(.bounds),
-                             arrowEdge: .top) {
-                        compactPopup {
-                            compactPopupAction("补全App名称", icon: "magnifyingglass",
-                                               enabled: !model.busy) {
-                                showingMorePopup = false
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    confirmingOnlineNames = true
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    // One toolbar item prevents the system from inserting
+                    // extra inter-item gaps between these three controls.
+                    HStack(spacing: 0) {
+                        sortMenu
+                        Button { model.loadApps() } label: {
+                            toolbarIcon("arrow.clockwise")
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .disabled(model.busy)
+                        .accessibilityLabel("刷新 App 列表")
+                        Button {
+                            showingSelectionPopup = false
+                            showingSortPopup = false
+                            showingMorePopup.toggle()
+                        } label: {
+                            toolbarIcon("ellipsis.circle")
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("更多选项")
+                        .popover(isPresented: $showingMorePopup, attachmentAnchor: .rect(.bounds),
+                                 arrowEdge: .top) {
+                            compactPopup {
+                                compactPopupAction("补全App名称", icon: "magnifyingglass",
+                                                   enabled: !model.busy) {
+                                    showingMorePopup = false
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                        confirmingOnlineNames = true
+                                    }
                                 }
-                            }
-                            compactPopupAction("高级设置", icon: "gearshape") {
-                                showingMorePopup = false
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    showingAdvancedSettings = true
+                                compactPopupAction("高级设置", icon: "gearshape") {
+                                    showingMorePopup = false
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                        showingAdvancedSettings = true
+                                    }
                                 }
                             }
                         }
@@ -242,8 +250,8 @@ struct ContentView: View {
     private var searchBar: some View {
         Group {
             if searchExpanded || !searchText.isEmpty {
-                HStack(spacing: 10) {
-                    contentIcon("magnifyingglass")
+                HStack(spacing: 6) {
+                    searchIcon("magnifyingglass")
                         .foregroundStyle(.secondary)
                     TextField("搜索", text: $searchText)
                         .textInputAutocapitalization(.never)
@@ -260,7 +268,7 @@ struct ContentView: View {
                             searchText = ""
                             searchFocused = true
                         } label: {
-                            contentIcon("xmark.circle.fill")
+                        searchIcon("xmark.circle.fill")
                                 .foregroundStyle(.secondary)
                         }
                         .accessibilityLabel("清除搜索")
@@ -271,8 +279,8 @@ struct ContentView: View {
                 Button {
                     searchExpanded = true
                 } label: {
-                    HStack(spacing: 8) {
-                        contentIcon("magnifyingglass")
+                    HStack(spacing: 4) {
+                        searchIcon("magnifyingglass")
                         Text("搜索")
                     }
                     .foregroundStyle(.secondary)
@@ -819,13 +827,15 @@ struct ContentView: View {
                                     enabled: Bool = true,
                                     action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 7) {
+            HStack(spacing: 6) {
                 Image(systemName: icon)
-                    // SF Symbols reach closer to their nominal point size than
-                    // Chinese text glyphs do. A 13pt symbol matches the
-                    // *visible* height of the adjacent 15pt label.
-                    .font(.footnote)
-                    .frame(width: 16, height: 16, alignment: .center)
+                    // Normalize the *drawn bounds* of every symbol, not just
+                    // the font point size; some glyphs (especially checkmark,
+                    // magnifyingglass and gearshape) have oversized outlines.
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: menuSymbolSize(icon), height: menuSymbolSize(icon))
+                    .frame(width: 14, height: 14, alignment: .center)
                     .opacity(symbolVisible ? 1 : 0)
                     .accessibilityHidden(true)
                 Text(title)
@@ -850,6 +860,8 @@ struct ContentView: View {
             showingSortPopup.toggle()
         } label: {
             toolbarIcon("arrow.up.arrow.down")
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("排序")
         .disabled(model.busy)
@@ -883,6 +895,22 @@ struct ContentView: View {
             .scaledToFit()
             .frame(width: 20, height: 20, alignment: .center)
             .frame(width: 24, height: 24, alignment: .center)
+            .accessibilityHidden(true)
+    }
+
+    /// 15pt Chinese menu labels have a smaller visible glyph box than their
+    /// nominal font size. Keep every symbol within 11–12pt optical bounds.
+    private func menuSymbolSize(_ symbol: String) -> CGFloat {
+        switch symbol {
+        case "checkmark", "magnifyingglass", "gearshape": return 11
+        default: return 12
+        }
+    }
+
+    private func searchIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 15, weight: .regular))
+            .frame(width: 17, height: 17)
             .accessibilityHidden(true)
     }
 
