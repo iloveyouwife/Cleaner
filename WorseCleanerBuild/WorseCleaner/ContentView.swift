@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var model = WorseCleanerModel()
     @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
     @State private var largestFirst = true
     @State private var selectedIDs = Set<String>()
     @State private var manualPath = ""
@@ -85,20 +86,39 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("搜索 App 名称或 Bundle ID", text: $searchText)
+                HStack(spacing: 8) {
+                    if !searchFocused && searchText.isEmpty {
+                        Spacer(minLength: 0)
+                    }
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    TextField("搜索", text: $searchText)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .focused($searchFocused)
+                        .submitLabel(.search)
+                        .onSubmit { searchFocused = false }
+                        .frame(maxWidth: searchFocused || !searchText.isEmpty ? .infinity : 56)
                     if !searchText.isEmpty {
-                        Button { searchText = "" } label: {
+                        Button {
+                            searchText = ""
+                        } label: {
                             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                         }
+                        .accessibilityLabel("清除搜索")
+                    }
+                    if !searchFocused && searchText.isEmpty {
+                        Spacer(minLength: 0)
                     }
                 }
-                .padding(12)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                Divider()
+                .padding(.horizontal, 16)
+                .frame(height: 46)
+                .background(Color(uiColor: .systemGray6), in: Capsule())
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+                .padding(.bottom, 12)
+                .background(Color(uiColor: .systemBackground))
 
                 List {
                     summarySection
@@ -115,6 +135,7 @@ struct ContentView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("App 缓存清理")
             .navigationBarTitleDisplayMode(.inline)
@@ -177,64 +198,70 @@ struct ContentView: View {
 
     private var summarySection: some View {
         Section {
-            HStack(alignment: .firstTextBaseline, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("已扫描缓存")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(sizeText(availableSize))
-                        .font(.system(.title2, design: .rounded, weight: .bold))
-                        .monospacedDigit()
+            VStack(spacing: 14) {
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("已扫描缓存")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(sizeText(availableSize))
+                            .font(.system(.title2, design: .rounded, weight: .bold))
+                            .monospacedDigit()
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("已选择 \(selectedIDs.count) 项")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(sizeText(selectedSize))
+                            .font(.headline.monospacedDigit())
+                    }
                 }
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("已选择 \(selectedIDs.count) 项")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(sizeText(selectedSize))
-                        .font(.headline.monospacedDigit())
+                .padding(.top, 4)
+
+                Divider()
+
+                Button {
+                    model.scanAll()
+                } label: {
+                    HStack(spacing: 12) {
+                        if model.busy { ProgressView() }
+                        else { Image(systemName: "arrow.triangle.2.circlepath") }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.busy ? "扫描中 · \(model.scannedAppCount) / \(model.apps.count)" : "重新扫描缓存")
+                                .font(.subheadline.weight(.semibold))
+                            Text("\(model.apps.count) 个数据容器 · 仅检查 Caches / tmp")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        if !model.busy {
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(Color.accentColor.opacity(0.07),
+                                in: RoundedRectangle(cornerRadius: 12))
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(model.busy || !model.appGroupReady || !model.groupConfirmed)
+
+                Button {
+                    confirmingClean = true
+                } label: {
+                    Label("清理所选 \(selectedIDs.count) 项 · \(sizeText(selectedSize))", systemImage: "trash")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.busy || selectedIDs.isEmpty ||
+                          !selectedIDs.contains(where: { model.usage[$0] != nil }))
             }
             .padding(.vertical, 8)
-            Button {
-                model.scanAll()
-            } label: {
-                HStack(spacing: 12) {
-                    if model.busy { ProgressView() }
-                    else { Image(systemName: "arrow.triangle.2.circlepath") }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(model.busy ? "扫描中 · \(model.scannedAppCount) / \(model.apps.count)" : "重新扫描缓存")
-                            .font(.subheadline.weight(.semibold))
-                        Text("\(model.apps.count) 个数据容器 · 仅检查 Caches / tmp")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 0)
-                    if !model.busy {
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(Color.accentColor.opacity(0.07),
-                            in: RoundedRectangle(cornerRadius: 12))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(model.busy || !model.appGroupReady || !model.groupConfirmed)
-
-            Button {
-                confirmingClean = true
-            } label: {
-                Label("清理所选 \(selectedIDs.count) 项 · \(sizeText(selectedSize))", systemImage: "trash")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(model.busy || selectedIDs.isEmpty ||
-                      !selectedIDs.contains(where: { model.usage[$0] != nil }))
         } header: {
             Label("有限清理模式", systemImage: "checkmark.shield")
         } footer: {
@@ -358,7 +385,7 @@ struct ContentView: View {
                     .foregroundStyle(selectedIDs.contains(app.id) ? Color.accentColor : Color.secondary)
                     .font(.system(size: 21))
             }
-            .padding(.vertical, 7)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
