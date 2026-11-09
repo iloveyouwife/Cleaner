@@ -830,7 +830,8 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 0) {
             content()
         }
-        .padding(5)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 3)
         .frame(width: 250)
         .presentationCompactAdaptation(.popover)
     }
@@ -857,7 +858,7 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .frame(minHeight: 38)
+            .frame(minHeight: 36)
             .padding(.horizontal, 10)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
