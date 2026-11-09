@@ -9,7 +9,10 @@ final class CleanerUITests: XCTestCase {
             selected ? "-capturePopulatedSelection" : "-capturePopulatedHome"
         ]
         app.launch()
-        XCTAssertTrue(app.staticTexts["微信"].waitForExistence(timeout: 15),
+        let firstRow = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "微信")
+        ).firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 15),
                       "The fixture App list should be visible before capturing menus.")
         return app
     }
@@ -22,8 +25,9 @@ final class CleanerUITests: XCTestCase {
     }
 
     private func openMenu(_ label: String, in app: XCUIApplication) {
-        let control = app.descendants(matching: .any)
-            .matching(identifier: label).firstMatch
+        let control = app.buttons.matching(
+            NSPredicate(format: "label == %@", label)
+        ).firstMatch
         XCTAssertTrue(control.waitForExistence(timeout: 10), "Missing menu: " + label)
         control.tap()
         sleep(1)
