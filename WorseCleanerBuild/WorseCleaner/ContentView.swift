@@ -23,6 +23,10 @@ struct ContentView: View {
     @State private var showingBundleIDOnly = false
     @State private var showingUnidentifiedContainers = false
     @ScaledMetric(relativeTo: .subheadline) private var chevronSize: CGFloat = 14
+    @ScaledMetric(relativeTo: .body) private var progressSize: CGFloat = 22
+    @ScaledMetric(relativeTo: .subheadline) private var chevronWidth: CGFloat = 18
+    @ScaledMetric(relativeTo: .subheadline) private var chevronHeight: CGFloat = 22
+    @ScaledMetric(relativeTo: .footnote) private var shieldSize: CGFloat = 16
 
     private var filteredApps: [WCTarget] {
         let matching = model.apps.filter {
@@ -243,7 +247,7 @@ struct ContentView: View {
                 } label: {
                     HStack(spacing: 10) {
                         if model.busy {
-                            ProgressView().frame(width: 22, height: 22)
+                            ProgressView().frame(width: progressSize, height: progressSize)
                         } else {
                             contentIcon("arrow.triangle.2.circlepath")
                         }
@@ -258,7 +262,7 @@ struct ContentView: View {
                         if !model.busy {
                             Image(systemName: "chevron.right")
                                 .font(.system(size: chevronSize, weight: .semibold))
-                                .frame(width: 18, height: 22)
+                                .frame(width: chevronWidth, height: chevronHeight)
                                 .foregroundStyle(.tertiary)
                         }
                     }
@@ -290,7 +294,7 @@ struct ContentView: View {
             HStack(alignment: .center, spacing: 4) {
                 Image(systemName: "checkmark.shield")
                     .font(.footnote.weight(.semibold))
-                    .frame(width: 16, height: 16, alignment: .center)
+                    .frame(width: shieldSize, height: shieldSize, alignment: .center)
                     .accessibilityHidden(true)
                 Text("有限清理模式")
                     .font(.footnote.weight(.semibold))
