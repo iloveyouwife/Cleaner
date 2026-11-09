@@ -7,6 +7,26 @@ enum CleanerLayout {
     static let settingsAccessorySpacing: CGFloat = 10
 }
 
+/// Four same-level navigation toolbar actions share one optical symbol box.
+/// SF Symbols have different natural aspect ratios, so using the same font
+/// size alone gives the checklist and sort glyphs a visibly larger footprint.
+/// Scaling to fit keeps each symbol's proportions and leaves the system's
+/// toolbar buttons, Liquid Glass backgrounds and accessibility actions intact.
+struct CleanerToolbarSymbol: View {
+    let name: String
+    @ScaledMetric(relativeTo: .body) private var opticalSize: CGFloat = 20
+    @ScaledMetric(relativeTo: .body) private var slotSize: CGFloat = 24
+
+    var body: some View {
+        Image(systemName: name)
+            .resizable()
+            .scaledToFit()
+            .frame(width: opticalSize, height: opticalSize)
+            .frame(width: slotSize, height: slotSize)
+            .accessibilityHidden(true)
+    }
+}
+
 /// Retain semantic Labels, but center their icons against the *entire* title
 /// view (title plus subtitle). SwiftUI's built-in titleAndIcon style does not
 /// guarantee that placement for a multi-line custom title view.

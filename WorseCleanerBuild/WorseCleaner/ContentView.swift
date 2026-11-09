@@ -132,7 +132,7 @@ struct ContentView: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     sortMenu
                     Button { model.loadApps() } label: {
-                        Image(systemName: "arrow.clockwise")
+                        CleanerToolbarSymbol(name: "arrow.clockwise")
                     }
                     .disabled(model.busy)
                     .accessibilityLabel("刷新 App 列表")
@@ -149,7 +149,7 @@ struct ContentView: View {
                             Label("高级设置", systemImage: "gearshape")
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        CleanerToolbarSymbol(name: "ellipsis.circle")
                     }
                     .menuOrder(.fixed)
                     .accessibilityLabel("更多选项")
@@ -448,7 +448,7 @@ struct ContentView: View {
                       systemImage: "list.bullet")
             }
         } label: {
-            Image(systemName: "checklist")
+            CleanerToolbarSymbol(name: "checklist")
         }
         .menuOrder(.fixed)
         .accessibilityLabel("选择操作")
@@ -462,7 +462,7 @@ struct ContentView: View {
                 Label("缓存从小到大", systemImage: "arrow.up").tag(false)
             }
         } label: {
-            Image(systemName: "arrow.up.arrow.down")
+            CleanerToolbarSymbol(name: "arrow.up.arrow.down")
         }
         .menuOrder(.fixed)
         .accessibilityLabel("排序")
