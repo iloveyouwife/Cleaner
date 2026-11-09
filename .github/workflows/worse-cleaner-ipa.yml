@@ -30,6 +30,7 @@ on:
       - worse-query-cleaner-v25
       - worse-query-cleaner-v26
       - worse-query-cleaner-v27
+      - worse-query-cleaner-v44
   workflow_dispatch:
 
 permissions:
@@ -93,7 +94,7 @@ jobs:
 
       # Best-effort visual QA for the SwiftUI settings layout. Simulator-only
       # launch arguments bypass discovery, never the signed-device safeguards.
-      - name: Capture advanced settings layout
+      - name: Capture native UI layouts
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -106,37 +107,33 @@ jobs:
             -derivedDataPath "$PWD/DerivedDataSimulator" \
             CODE_SIGNING_ALLOWED=NO \
             build
-          # Match the user's iPhone 16 Pro when the runner offers one;
-          # otherwise fall back to any available iPhone simulator.
           simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
           test -n "$simulator_id"
           xcrun simctl boot "$simulator_id" || true
           xcrun simctl bootstatus "$simulator_id" -b
           xcrun simctl install "$simulator_id" DerivedDataSimulator/Build/Products/Release-iphonesimulator/WorseCleaner.app
           mkdir -p ui-screenshots
+          xcrun simctl ui "$simulator_id" appearance light
           xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureToolbarHome
           sleep 3
-          xcrun simctl io "$simulator_id" screenshot ui-screenshots/toolbar-home.png
-          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
-          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureMorePopup
-          sleep 4
-          xcrun simctl io "$simulator_id" screenshot ui-screenshots/more-popup.png
-          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
-          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureSortPopup
-          sleep 3
-          xcrun simctl io "$simulator_id" screenshot ui-screenshots/sort-popup.png
-          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
-          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureSelectionPopup
-          sleep 3
-          xcrun simctl io "$simulator_id" screenshot ui-screenshots/selection-popup.png
-          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
-          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureSelectionPopupSelected
-          sleep 3
-          xcrun simctl io "$simulator_id" screenshot ui-screenshots/selection-popup-selected.png
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/home-light.png
           xcrun simctl terminate "$simulator_id" com.example.worsecleaner
           xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
           sleep 3
-          xcrun simctl io "$simulator_id" screenshot ui-screenshots/advanced-settings.png
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/settings-light.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureExcludedApps
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/excluded-light.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl ui "$simulator_id" appearance dark
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureToolbarHome
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/home-dark.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/settings-dark.png
 
       - name: Upload layout screenshot
         if: always()
