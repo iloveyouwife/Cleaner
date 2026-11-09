@@ -71,6 +71,7 @@ GitHub Actions 生成的是**未签名编译产物**，无法代替你的签名�
 - v21 三个操作菜单统一针对图标视觉尺寸作光学校正：文字仍保留 `.subheadline`（15pt），全部菜单图标改为 `.footnote`（13pt）并居中于 16pt 图标槽，图文水平间距从 8pt 收到 7pt。解决同样用 15pt 时 SF Symbols 的勾选、放大镜、齿轮等实际视觉高度明显大于文字的问题。未修改功能逻辑。
 - v22 再次根据真机截图修正图标的实际绘制边界：左／中／右菜单共用 14pt 位置槽，常规符号按 12pt 边界绘制，勾、放大镜和齿轮按 11pt 边界绘制，文字仍为 15pt；图文间距减至 6pt。顶部三个工具按钮改成同一个紧凑组（44pt 按钮点击区域、组内无额外间隔），避免系统在三个独立 ToolbarItem 之间追加多余空白。首页搜索图标缩到 15pt，图标位置槽 17pt、搜索展示时图文间隔 4pt（输入模式为 6pt）。CI 将右侧弹窗截图提前并延长一次截图等待，降低连续重启造成的空白截屏概率。清理与识别逻辑不变。
 - v23 只收紧左／中／右三个弹出菜单的纵向排版：菜单行高从 44pt 调整至 38pt、行间距从 2pt 调为 0、容器上下及四边内边距从 6pt 改为 5pt。保留 v22 的 15pt 文字、11–12pt 图标视觉尺寸、6pt 图文间距和全部按钮功能，减少菜单空白、避免重新引入尺寸不统一。
+- v24 依据 iPhone 16 Pro／iOS 27.0.1 真机截图统一高级设置页面的字体层级：Picker、Toggle、手动添加、日志入口、状态与扫描操作均使用 17pt `.body` 主文字，副标题统一为系统 `.caption`，Form 单行最小高度 48pt，双行状态卡保留一致的自然高度。将「专用 App Group」简化成「App Group」，「确认是 Cleaner 专用组」简化成「Cleaner」，保留下面关于专用组风险的提示。模拟器截图使用测试专用的示例 App Group 以检查两行设置完整布局，且优先选择 iPhone 16 Pro；不修改真机权限和清理逻辑。
 - 首次载入自动执行慢速 inode 深度发现（可能耗时数分钟）；对之前已经确认过的**同一个专用 App Group**，会自动继续扫描缓存。首次新组需要用户确认后手动触发扫描。
 - 可选择一个或多个 App 后「排除选中」，排除项会从首页列表和批量扫描/清理里跳过；可在**左上角**「管理已排除 App」恢复。排除信息保存在本地 App 设置中，按容器路径识别，App 重新安装导致 UUID 改变时需重新排除。
 - 权限设置、手动添加与可展开的访问诊断位于右上角「高级设置」。
@@ -89,4 +90,4 @@ xcodegen generate
 xcodebuild -project WorseCleaner.xcodeproj -scheme WorseCleaner -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix` 及 `worse-query-cleaner-v3` 至 `worse-query-cleaner-v23` 分支提交时构建未签名 IPA。
+GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix` 及 `worse-query-cleaner-v3` 至 `worse-query-cleaner-v24` 分支提交时构建未签名 IPA。

@@ -26,6 +26,7 @@ on:
       - worse-query-cleaner-v21
       - worse-query-cleaner-v22
       - worse-query-cleaner-v23
+      - worse-query-cleaner-v24
   workflow_dispatch:
 
 permissions:
@@ -94,7 +95,9 @@ jobs:
             -derivedDataPath "$PWD/DerivedDataSimulator" \
             CODE_SIGNING_ALLOWED=NO \
             build
-          simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
+          # Match the user's iPhone 16 Pro when the runner offers one;
+          # otherwise fall back to any available iPhone simulator.
+          simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
           test -n "$simulator_id"
           xcrun simctl boot "$simulator_id" || true
           xcrun simctl bootstatus "$simulator_id" -b
