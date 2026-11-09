@@ -1,9 +1,27 @@
 import SwiftUI
 
 /// Shared presentation rules for content rows. SF Symbols and typography use
-/// Dynamic Type; the platform chooses the icon-to-title spacing for Labels.
+/// Dynamic Type; an explicit centered LabelStyle avoids the system Label's
+/// first-line alignment and overly wide automatic icon/title separation.
 enum CleanerLayout {
     static let settingsAccessorySpacing: CGFloat = 10
+}
+
+/// Retain semantic Labels, but center their icons against the *entire* title
+/// view (title plus subtitle). SwiftUI's built-in titleAndIcon style does not
+/// guarantee that placement for a multi-line custom title view.
+private struct CleanerCenteredSettingsLabelStyle: LabelStyle {
+    @ScaledMetric(relativeTo: .body) private var iconColumnWidth: CGFloat = 22
+    @ScaledMetric(relativeTo: .body) private var iconToTitleSpacing: CGFloat = 8
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .center, spacing: iconToTitleSpacing) {
+            configuration.icon
+                .frame(width: iconColumnWidth, height: iconColumnWidth)
+            configuration.title
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 }
 
 struct CleanerSettingsSymbol: View {
@@ -23,7 +41,8 @@ struct CleanerSettingsSymbol: View {
 
 /// Shared native-style Settings row. Center the leading symbol against the
 /// entire title/subtitle block, including when the title spans multiple lines.
-/// Use a semantic Label and the platform's icon/title layout and spacing.
+/// Use a semantic Label with a shared centered arrangement, keeping the
+/// system typography and a consistent scaled icon slot across these rows.
 struct CleanerSettingsLabel: View {
     let symbol: String
     let title: String
@@ -31,7 +50,6 @@ struct CleanerSettingsLabel: View {
     var tint: Color = .primary
     var titleColor: Color = .primary
     var emphasized: Bool = true
-    @ScaledMetric(relativeTo: .body) private var iconColumnWidth: CGFloat = 22
 
     var body: some View {
         Label {
@@ -52,8 +70,7 @@ struct CleanerSettingsLabel: View {
         } icon: {
             CleanerSettingsSymbol(name: symbol, tint: tint)
         }
-        .labelStyle(.titleAndIcon)
-        .labelReservedIconWidth(iconColumnWidth)
+        .labelStyle(CleanerCenteredSettingsLabelStyle())
         .accessibilityElement(children: .combine)
     }
 }
