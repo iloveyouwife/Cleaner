@@ -685,16 +685,19 @@ struct ContentView: View {
             .accessibilityHidden(true)
     }
 
-    /// A fixed, narrow icon slot keeps multi-line notes aligned with their
-    /// own text rather than the wide icon column of Form's native Label style.
+    /// Match the warning symbol's optical size to the footnote text, and
+    /// align its baseline with the first line even when the text wraps.
     private func warningFootnote(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 12, weight: .medium))
-                .frame(width: 14, height: 17, alignment: .top)
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 17, alignment: .center)
+                .alignmentGuide(.firstTextBaseline) { dimensions in
+                    dimensions[.bottom] - 2
+                }
                 .accessibilityHidden(true)
             Text(message)
-                .font(.caption)
+                .font(.footnote)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -748,24 +751,27 @@ struct ContentView: View {
             } label: {
                 menuItem("全选当前列表", icon: "checkmark.circle")
             }
-            Button {
-                selectedIDs.removeAll()
-            } label: {
-                menuItem("取消全选", icon: "circle")
+            if !selectedIDs.isEmpty {
+                Button {
+                    selectedIDs.removeAll()
+                } label: {
+                    menuItem("取消全选", icon: "circle")
+                }
+                Button {
+                    let paths = Set(model.apps.filter { selectedIDs.contains($0.id) }.map(\.path))
+                    model.exclude(paths)
+                    selectedIDs.removeAll()
+                } label: {
+                    menuItem("排除选中的 \(selectedIDs.count) 个 App", icon: "eye.slash")
+                }
             }
-            Divider()
-            Button {
-                let paths = Set(model.apps.filter { selectedIDs.contains($0.id) }.map(\.path))
-                model.exclude(paths)
-                selectedIDs.removeAll()
-            } label: {
-                menuItem("排除选中的 \(selectedIDs.count) 个 App", icon: "eye.slash")
-            }
-            .disabled(selectedIDs.isEmpty)
             Button {
                 showingExcluded = true
             } label: {
-                menuItem("管理已排除 App（\(model.excludedPaths.count)）", icon: "list.bullet")
+                menuItem(model.excludedPaths.isEmpty
+                         ? "管理已排除 App"
+                         : "管理已排除 App（\(model.excludedPaths.count)）",
+                         icon: "list.bullet")
             }
         } label: {
             toolbarIcon("checklist")
