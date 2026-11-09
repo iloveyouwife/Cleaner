@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct CleanerExcludedAppsView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ObservedObject var model: WorseCleanerModel
     @Binding var isPresented: Bool
 
@@ -19,22 +20,17 @@ struct CleanerExcludedAppsView: View {
                 } else {
                     Section("已排除 App（\(excluded.count)）") {
                         ForEach(excluded) { app in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(app.name)
-                                        .font(.body.weight(.medium))
-                                        .lineLimit(2)
-                                    Text(app.bundleID)
-                                        .font(.footnote.monospaced())
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
+                            if dynamicTypeSize.isAccessibilitySize {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    excludedDetails(app)
+                                    restoreButton(for: app)
                                 }
-                                Spacer()
-                                Button("取消排除") { model.restoreExcluded([app.path]) }
-                                    .font(.subheadline)
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.regular)
+                            } else {
+                                HStack {
+                                    excludedDetails(app)
+                                    Spacer()
+                                    restoreButton(for: app)
+                                }
                             }
                         }
                     }
@@ -54,6 +50,27 @@ struct CleanerExcludedAppsView: View {
                 }
             }
         }
+    }
+
+    private func excludedDetails(_ app: WCTarget) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(app.name)
+                .font(.body.weight(.medium))
+                .lineLimit(2)
+            Text(app.bundleID)
+                .font(.footnote.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                .truncationMode(.middle)
+        }
+    }
+
+    private func restoreButton(for app: WCTarget) -> some View {
+        Button("取消排除") { model.restoreExcluded([app.path]) }
+            .font(.subheadline)
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .accessibilityLabel("取消排除 " + app.name)
     }
 
 }
