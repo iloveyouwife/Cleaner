@@ -117,7 +117,7 @@ struct ContentView: View {
                     applicationSection
                     bundleIDOnlySection
                     unidentifiedContainerSection
-                    Section("运行结果") {
+                    Section {
                         DisclosureGroup(isExpanded: $showingRunDetails) {
                             Text(model.status)
                                 .font(.footnote)
@@ -135,6 +135,8 @@ struct ContentView: View {
                                     .truncationMode(.tail)
                             }
                         }
+                    } header: {
+                        appSectionHeading("运行结果")
                     }
                 }
                 .listStyle(.insetGrouped)
@@ -509,10 +511,10 @@ struct ContentView: View {
 
     /// All app-category headings share one typography and color treatment.
     /// Collapsible categories add a chevron without changing the text style.
-    private func appSectionHeading(_ title: String, count: Int,
+    private func appSectionHeading(_ title: String, count: Int? = nil,
                                    expanded: Bool? = nil) -> some View {
         HStack(spacing: 8) {
-            Text("\(title)（\(count)）")
+            Text(count.map { "\(title)（\($0)）" } ?? title)
             Spacer(minLength: 8)
             if let expanded {
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
@@ -552,7 +554,7 @@ struct ContentView: View {
                         settingsIcon("checkmark.shield", color: .accentColor)
                         VStack(alignment: .leading, spacing: 3) {
                             Text("缓存访问权限")
-                                .font(.body.weight(.medium))
+                                .font(.subheadline.weight(.medium))
                             Text(model.appGroupReady
                                  ? "已找到可访问的 App Group"
                                  : "当前签名没有可访问的 App Group")
@@ -577,7 +579,7 @@ struct ContentView: View {
                         HStack(spacing: 8) {
                             settingsIcon("exclamationmark.triangle", color: .orange)
                             Text("没有可选的 App Group")
-                                .font(.body)
+                                .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                     } else {
@@ -586,14 +588,14 @@ struct ContentView: View {
                                 Text(group).tag(group)
                             }
                         }
-                        .font(.body)
+                        .font(.subheadline)
                         .disabled(model.busy)
 
                         Toggle("Cleaner", isOn: Binding(
                             get: { model.groupConfirmed },
                             set: { model.setGroupConfirmed($0) }
                         ))
-                        .font(.body)
+                        .font(.subheadline)
                         .disabled(model.busy)
                     }
                 } header: {
@@ -611,7 +613,7 @@ struct ContentView: View {
                             settingsIcon("arrow.triangle.2.circlepath")
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("深度发现 App 容器")
-                                    .font(.body.weight(.medium))
+                                    .font(.subheadline.weight(.medium))
                                     .foregroundStyle(.primary)
                                 Text("按 inode 搜索 · 可能需要几分钟")
                                     .font(.caption)
@@ -637,7 +639,7 @@ struct ContentView: View {
                     TextField("输入容器 UUID 或完整路径", text: $manualPath)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .font(.body.monospaced())
+                        .font(.subheadline.monospaced())
                     Button {
                         model.addManualPath(manualPath.trimmingCharacters(in: .whitespacesAndNewlines))
                         manualPath = ""
@@ -645,7 +647,7 @@ struct ContentView: View {
                         HStack(spacing: 8) {
                             settingsIcon("plus.circle", color: .accentColor)
                             Text("添加 App 容器")
-                                .font(.body)
+                                .font(.subheadline)
                         }
                     }
                     .disabled(manualPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
@@ -709,7 +711,7 @@ struct ContentView: View {
                         HStack(spacing: 8) {
                             settingsIcon("doc.text.magnifyingglass")
                             Text("查看访问诊断日志")
-                                .font(.body)
+                                .font(.subheadline)
                                 .foregroundStyle(.primary)
                         }
                     }
@@ -719,7 +721,6 @@ struct ContentView: View {
                     Text("日志用于排查权限问题；系统拒绝元数据访问时可能无法识别 App 名称。")
                 }
             }
-            .environment(\.defaultMinListRowHeight, 48)
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("高级设置")
             .navigationBarTitleDisplayMode(.inline)
