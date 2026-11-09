@@ -445,7 +445,7 @@ struct ContentView: View {
                 Label(model.excludedPaths.isEmpty
                       ? "管理已排除 App"
                       : "管理已排除 App（\(model.excludedPaths.count)）",
-                      systemImage: "list.bullet")
+                      systemImage: "circle.slash")
             }
         } label: {
             CleanerToolbarSymbol(name: "checklist")
