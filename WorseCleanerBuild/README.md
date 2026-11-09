@@ -16,7 +16,7 @@
 2. 在扩展有效期间复用 3105 的 `openat` / `readdir` / `unlinkat` 缓存算法。
 3. 只允许 `/var/mobile/Containers/Data/Application/<UUID>/Library/Caches` 和 `/tmp` 两个缓存根目录；不删除根目录本身，拒绝跟随符号链接。
 4. 扫描先检查根目录及缓存目录是否可读。失败明确报告 errno，不将“没有权限”误报成“0 KB”。
-5. 清理前必须成功扫描，并由用户对**每个 App 单独确认**。
+5. 清理前必须成功扫描，仅对用户手动勾选的目标进行批量确认后清理。
 6. **完全不使用配对记录、钥匙串、AFC/HouseArrest、AirTraffic、VPN 或后台音频**。旧 `CacheGuardBuild` 不参与构建。
 
 ## 重要：App Group 必须由签名赋权
@@ -31,7 +31,8 @@
 
 1. `project.yml` 中的 `PRODUCT_BUNDLE_IDENTIFIER`
 2. `WorseCleaner/WorseCleaner.entitlements` 中的 App Group
-3. `WorseCleaner/CleanerEngine.swift` 中构建时示例 App Group 标识（运行时以实际签名授权为准）
+
+App Group 的实际权限在运行时从签名中读取，不依赖源码中的示例常量。
 
 签名时 provisioning profile 必须允许相同的 App Group。仅重签名 IPA、但没有匹配的 App Group entitlement，**不能让漏洞工作**。
 诊断页面现在会读取安装后实际生效的 App Group entitlement，而不是盲信构建时的示例值；如果签名工具更换了组名，可在界面选择实际授权的组。
@@ -56,6 +57,8 @@ GitHub Actions 生成的是**未签名编译产物**，无法代替你的签名�
 - v9 的关键身份限制：**容器 UUID 是 `/var/mobile/Containers/Data/Application/<UUID>` 的目录标识，不是 App 名称，也不是 Bundle ID**。本项目移植 3105 的部分 MCM/LaunchServices/MobileInstallation 只读发现和缓存扫描方法，但没有移植原项目的完整权限提升与容器激活路径。若系统拒绝 `.com.apple.mobile_container_manager.metadata.plist`（例如 `errno=1`），且保存状态与偏好文件也没有可靠线索，便无法把仅有 UUID 的目录安全映射到具体 App。离线的少量确切 Bundle ID 显示名也属于回退映射，不应解读为已读取系统原始名称。系统内部服务可能没有用户可见的 App 名称。
 - v10 依照参考界面将搜索入口调整为无边框的浅灰色胶囊：空闲时放大镜和「搜索」居中，进入编辑后自动展开输入区域，并支持清除、搜索键提交与滚动收起键盘。扫描摘要的统计、重新扫描和清理按钮合并为一张紧凑卡片，App 行略收紧纵向留白；不改扫描权限、目标识别和删除范围。
 - v11 修复 v10 中 `TextField` 自身留白导致的假居中：未编辑时用独立的按钮将放大镜和「搜索」作为一个整体在胶囊内**严格水平居中**，点按后才切换为可编辑搜索框并请求键盘焦点。整个搜索区域从顶部导航栏的白色区域移到浅灰色分组背景，视觉上和工具栏分开、与下方缓存清理卡片归为同一区域。搜索、清除、键盘收起与筛选行为保持不变。
+- v12 收紧「有限清理模式」图标与文字的间距（显式 6pt），缩短首页冗长的分组说明、统一运行结果的次级文字样式；保留完整的名称识别计数和 `errno` 细节到「高级设置 → 访问诊断与手动添加」，首页只显示扫描摘要。修复联网补全提示中错误的字符串插值、重新扫描失败时保留陈旧的缓存大小、清理失败时保留陈旧大小以及更换 App Group 仍沿用旧扫描结果的问题。删除自 v9 停用、从未被当前 UI 调用的本地图标解码/私有 UIKit 图标查询方法、单 App 扫描/清理包装及未使用的示例常量；不改变可清理路径、授权检查及用户确认流程。
+- v12 权限说明：真机反馈 `.com.apple.mobile_container_manager.metadata.plist` 在 248 个容器上均返回 `EPERM (errno=1)`，即元数据文件读取被拒绝。可读取 `Library/Caches` 与 `tmp` **不等于**可读取该隐藏元数据文件；仅修改路径或重复 `openat` 不保证能解除沙盒限制。本版本保留元数据、Saved Application State、Preferences 与 MCM/LaunchServices 的多级识别路径；无法确认的 UUID 仍如实归类为「未识别数据容器」，绝不据此猜测所属 App。
 - 首次载入自动执行慢速 inode 深度发现（可能耗时数分钟）；对之前已经确认过的**同一个专用 App Group**，会自动继续扫描缓存。首次新组需要用户确认后手动触发扫描。
 - 可选择一个或多个 App 后「排除选中」，排除项会从首页列表和批量扫描/清理里跳过；可在右上角「管理已排除 App」恢复。排除信息保存在本地 App 设置中，按容器路径识别，App 重新安装导致 UUID 改变时需重新排除。
 - 「访问诊断与手动添加」隐藏在右上角「高级设置」，仅需首次绑定新的专用 App Group 时访问。
@@ -74,4 +77,4 @@ xcodegen generate
 xcodebuild -project WorseCleaner.xcodeproj -scheme WorseCleaner -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix`、`worse-query-cleaner-v3`、`worse-query-cleaner-v4`、`worse-query-cleaner-v5`、`worse-query-cleaner-v6`、`worse-query-cleaner-v7`、`worse-query-cleaner-v8`、`worse-query-cleaner-v9`、`worse-query-cleaner-v10`、`worse-query-cleaner-v11` 分支提交时构建未签名 IPA。
+GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix` 及 `worse-query-cleaner-v3` 至 `worse-query-cleaner-v12` 分支提交时构建未签名 IPA。

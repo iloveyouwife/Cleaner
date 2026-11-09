@@ -1,10 +1,8 @@
 import Foundation
 import Darwin
-import UIKit
 
 struct WCAppCatalog {
     let names: [String: String]
-    let icons: [String: UIImage]
     let diagnostics: String
 }
 
@@ -100,40 +98,9 @@ enum WCAppNames {
         return nil
     }
 
-    private static func installedIcon(at appPath: String, info: [String: Any]) -> UIImage? {
-        let bundle = Bundle(path: appPath)
-        var iconNames = [String]()
-        for plistKey in ["CFBundleIcons", "CFBundleIcons~ipad"] {
-            if let icons = info[plistKey] as? [String: Any],
-               let primary = icons["CFBundlePrimaryIcon"] as? [String: Any] {
-                iconNames += primary["CFBundleIconFiles"] as? [String] ?? []
-                if let name = primary["CFBundleIconName"] as? String { iconNames.append(name) }
-            }
-        }
-        if let name = info["CFBundleIconFile"] as? String { iconNames.append(name) }
-        if let files = info["CFBundleIconFiles"] as? [String] { iconNames += files }
-        for name in iconNames.reversed() {
-            let base = (name as NSString).deletingPathExtension
-            if let bundle, let image = UIImage(named: base, in: bundle, compatibleWith: nil) {
-                return image
-            }
-            for file in [name, base + "@3x.png", base + "@2x.png", base + ".png"] {
-                if let image = UIImage(contentsOfFile: appPath + "/" + file) { return image }
-            }
-        }
-        // Modern signed IPAs commonly carry a loose compiled icon beside
-        // Assets.car, even when CFBundleIconFiles only names the asset catalog.
-        for file in ["AppIcon60x60@3x.png", "AppIcon60x60@2x.png",
-                     "AppIcon76x76@2x~ipad.png", "Icon-60@3x.png", "Icon-60@2x.png"] {
-            if let image = UIImage(contentsOfFile: appPath + "/" + file) { return image }
-        }
-        return nil
-    }
-
     static func catalog(groupID: String, discoveredBundleRoots: [String] = []) -> WCAppCatalog {
         var names = offlineNames
         names.merge(savedNames()) { _, saved in saved }
-        var icons: [String: UIImage] = [:]
         let root = "/var/containers/Bundle/Application"
         let fm = FileManager.default
         var readableApps = 0
@@ -155,9 +122,6 @@ enum WCAppNames {
                 if let name = installedName(at: appPath, info: info) {
                     names[bundleID] = name
                 }
-                // The cache-cleaner list intentionally does not show app icons:
-                // iOS 27 generally denies icon metadata and placeholder tiles
-                // were misleading. Keep the name lookup, skip image decoding.
             }
         }
 
@@ -180,7 +144,7 @@ enum WCAppNames {
 
         // Critical fallback: pathleak finds UUIDs through fsgetpath even when
         // readdir of Bundle/Application is denied. Acquire a scoped token for
-        // each *existing* bundle directory and read its Info.plist/icons.
+        // each *existing* bundle directory and read its Info.plist.
         // This avoids assuming a parent directory token grants child access.
         var perRootGrants = 0
         for rawPath in Set(discoveredBundleRoots).sorted().prefix(2_048) {
@@ -197,6 +161,6 @@ enum WCAppNames {
             worse_query_release(scopedLease)
         }
         let info = "安装包根目录 token=\(rootLease)，pathleak 发现 \(discoveredBundleRoots.count) 个安装目录，单目录授权 \(perRootGrants)，读到 \(readableApps) 份 Info.plist。列表已关闭图标读取。"
-        return WCAppCatalog(names: names, icons: icons, diagnostics: info)
+        return WCAppCatalog(names: names, diagnostics: info)
     }
 }

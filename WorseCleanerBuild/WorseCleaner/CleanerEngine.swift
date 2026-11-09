@@ -56,10 +56,6 @@ enum WCFailure: LocalizedError {
 }
 
 enum WCFileAccess {
-    // The installed signer may replace the build-time group. Never assume
-    // the example entitlement survived signing.
-    static let buildTimeGroupID = "group.com.example.worsecleaner"
-
     static func signedGroups() -> [String] {
         WCSignedAppGroups()
     }
@@ -158,10 +154,6 @@ enum WCFileAccess {
             readableCount += 1
         }
         if readableCount == 0 { throw WCFailure.noCacheDirectories }
-    }
-
-    static func scan(_ target: WCTarget, groupID: String) throws -> LimitedCleanerUsage {
-        try inspect(target, groupID: groupID).usage
     }
 
     static func inspect(

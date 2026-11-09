@@ -1,4 +1,5 @@
 import SwiftUI
+import Darwin
 
 @MainActor
 final class WorseCleanerModel: ObservableObject {
@@ -11,7 +12,7 @@ final class WorseCleanerModel: ObservableObject {
     @Published var groupID = ""
     @Published var groupConfirmed = false
     @Published var scannedAppCount = 0
-    @Published var iconDiagnostics = "尚未扫描图标。"
+    @Published var accessDiagnostics = "尚未进行容器访问诊断。"
     @Published private(set) var excludedPaths = Set(
         UserDefaults.standard.stringArray(forKey: "wc.excludedPaths") ?? []
     )
@@ -19,6 +20,7 @@ final class WorseCleanerModel: ObservableObject {
     private let queue = DispatchQueue(label: "org.worsecleaner.serial", qos: .userInitiated)
     private let confirmedGroupKey = "wc.confirmedDedicatedGroup"
     private var discoveredBundleRoots: [String] = []
+    private var lastPreparedGroup = ""
 
     func setGroupConfirmed(_ value: Bool) {
         groupConfirmed = value && appGroupReady
@@ -47,6 +49,11 @@ final class WorseCleanerModel: ObservableObject {
                 ?? available.first ?? ""
         }
         appGroupReady = !groupID.isEmpty && available.contains(groupID)
+        if lastPreparedGroup != groupID {
+            usage.removeAll()
+            scannedAppCount = 0
+            lastPreparedGroup = groupID
+        }
         groupConfirmed = appGroupReady &&
             UserDefaults.standard.string(forKey: confirmedGroupKey) == groupID
     }
@@ -67,6 +74,7 @@ final class WorseCleanerModel: ObservableObject {
             }
             let message = error.map(String.init)
             DispatchQueue.main.async {
+                self.usage.removeAll()
                 self.apps = apps
                 self.busy = false
                 let onlySelf = apps.count == 1 &&
@@ -123,65 +131,6 @@ final class WorseCleanerModel: ObservableObject {
         }
     }
 
-    func scan(_ target: WCTarget) {
-        guard !busy else { return }
-        guard appGroupReady, groupConfirmed else {
-            status = "请先在「访问诊断」确认专用 App Group，避免操作其他软件的共享缓存。"
-            return
-        }
-        busy = true
-        status = "正在扫描 \(target.name)……"
-        let selectedGroup = groupID
-        let bundleRoots = discoveredBundleRoots
-        queue.async {
-            let catalog = WCAppNames.catalog(groupID: selectedGroup, discoveredBundleRoots: bundleRoots)
-            let result = Result {
-                try WCFileAccess.inspect(target, groupID: selectedGroup, knownNames: catalog.names)
-            }
-            DispatchQueue.main.async {
-                self.busy = false
-                self.iconDiagnostics = catalog.diagnostics
-                switch result {
-                case .success(let inspection):
-                    self.usage[target.id] = inspection.usage
-                    if let index = self.apps.firstIndex(where: { $0.path == target.path }) {
-                        self.apps[index] = inspection.target
-                    }
-                    self.status = "\(inspection.target.name)：\(inspection.usage.removableItemCount) 项，预计 \(ByteCountFormatter.string(fromByteCount: inspection.usage.totalBytes, countStyle: .file))。"
-                case .failure(let error):
-                    self.usage.removeValue(forKey: target.id)
-                    self.status = "\(target.name) 扫描失败：\(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    func clean(_ target: WCTarget) {
-        // A separate successful scan is mandatory; the UI also asks for
-        // destructive-action confirmation before calling this method.
-        guard !busy, groupConfirmed, appGroupReady, usage[target.id] != nil else { return }
-        busy = true
-        status = "正在清理 \(target.name) 的 Caches/tmp……"
-        let selectedGroup = groupID
-        queue.async {
-            let result = Result { try WCFileAccess.clean(target, groupID: selectedGroup) }
-            DispatchQueue.main.async {
-                self.busy = false
-                switch result {
-                case .success(let report):
-                    self.usage[target.id] = report.after
-                    let size = ByteCountFormatter.string(
-                        fromByteCount: report.freedBytes, countStyle: .file
-                    )
-                    self.status = "清理完成：\(target.name) 已删除 \(report.removedItemCount) 项，释放约 \(size)；失败 \(report.failedItemCount) 项。"
-                case .failure(let error):
-                    self.usage.removeValue(forKey: target.id)
-                    self.status = "清理未确认：\(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
     func scanAll() {
         guard !busy, groupConfirmed, appGroupReady else {
             status = "无法开始：需先确认专用 App Group 已授权。"
@@ -224,16 +173,22 @@ final class WorseCleanerModel: ObservableObject {
                 DispatchQueue.main.async { self.scannedAppCount = index + 1 }
             }
             DispatchQueue.main.async {
+                // A failed rescan must never retain stale size/selection data.
+                for target in targets { self.usage.removeValue(forKey: target.id) }
                 self.usage.merge(results) { _, newer in newer }
-                self.iconDiagnostics = catalog.diagnostics
                 self.apps = self.apps.map { identities[$0.id] ?? $0 }
                 self.busy = false
                 let stats = "名称识别：\(namedCount) 个可显示名称（含离线名称映射）、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个未识别容器。"
                 let methods = "来源：元数据 \(identityCounts[.metadata, default: 0])，保存状态 \(identityCounts[.savedState, default: 0])，偏好文件 \(identityCounts[.preferences, default: 0])。"
                 let access = metadataErrors.sorted { $0.value > $1.value }.prefix(2)
                     .map { "errno \($0.key): \($0.value)" }.joined(separator: "，")
-                self.status = "完成：扫描 \(targets.count) 个容器，成功 \(results.count)，访问失败 \(failures)。" +
-                    stats + methods + (access.isEmpty ? "" : " 元数据读取错误：\(access)。")
+                let permissionHint = metadataErrors[EPERM, default: 0] > 0
+                    ? " 元数据受系统权限限制；详见高级设置中的访问诊断。" : ""
+                self.status = "扫描完成：\(results.count)/\(targets.count) 个容器可访问，" +
+                    "识别名称 \(namedCount) 个，识别 Bundle ID \(readableButUnnamed) 个。" +
+                    (failures == 0 ? "" : " 扫描失败 \(failures) 个。") + permissionHint
+                self.accessDiagnostics = catalog.diagnostics + "\n" + stats + "\n" + methods +
+                    (access.isEmpty ? "" : "\n元数据访问错误：\(access)。EPERM(1) 通常表示沙盒不允许读取该文件，缓存目录可访问不代表元数据可访问。")
             }
         }
     }
@@ -252,7 +207,7 @@ final class WorseCleanerModel: ObservableObject {
             return
         }
         busy = true
-        status = "向 Apple 查询首批 (candidates.count) 个未知 App 的公开名称……"
+        status = "向 Apple 查询首批 \(candidates.count) 个未知 App 的公开名称……"
         Task {
             var found: [String: String] = [:]
             let ids = Array(candidates)
@@ -266,7 +221,7 @@ final class WorseCleanerModel: ObservableObject {
                         if let name { found[id] = name }
                     }
                 }
-                status = "已查询 (min(start + 5, ids.count))/\(ids.count) 个 App，找到 (found.count) 个名称。"
+                status = "已查询 \(min(start + 5, ids.count))/\(ids.count) 个 App，找到 \(found.count) 个名称。"
             }
             WCAppNames.storeVerifiedNames(found)
             apps = apps.map { app in
@@ -276,7 +231,7 @@ final class WorseCleanerModel: ObservableObject {
                 return (try? WCTarget(bundleID: app.bundleID, name: name, path: app.path)) ?? app
             }
             busy = false
-            status = "联网名称补全完成：本次识别 (found.count) 个，其余可能未在 Apple 商店收录或已下架。"
+            status = "联网名称补全完成：本次识别 \(found.count) 个，其余可能未在 Apple 商店收录或已下架。"
         }
     }
 
@@ -293,6 +248,7 @@ final class WorseCleanerModel: ObservableObject {
             var freed: Int64 = 0
             var removed = 0
             var failures = 0
+            var failedIDs = Set<String>()
             for target in targets {
                 do {
                     let result = try WCFileAccess.clean(target, groupID: selectedGroup)
@@ -302,9 +258,11 @@ final class WorseCleanerModel: ObservableObject {
                     failures += result.failedItemCount
                 } catch {
                     failures += 1
+                    failedIDs.insert(target.id)
                 }
             }
             DispatchQueue.main.async {
+                for id in failedIDs { self.usage.removeValue(forKey: id) }
                 for (key, result) in latest { self.usage[key] = result }
                 self.busy = false
                 self.status = "已删除 \(removed) 项，释放约 \(ByteCountFormatter.string(fromByteCount: freed, countStyle: .file))；失败或未验证 \(failures) 项。"

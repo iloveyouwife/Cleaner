@@ -101,11 +101,12 @@ struct ContentView: View {
                     if !model.appGroupReady || !model.groupConfirmed {
                         signingWarning
                     }
-                    Section("运行结果") {
-                        Text(model.status)
-                            .font(.footnote)
-                            .textSelection(.enabled)
-                    }
+                Section("运行结果") {
+                    Text(model.status)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
                 }
                 .listStyle(.insetGrouped)
                 .scrollDismissesKeyboard(.interactively)
@@ -163,7 +164,11 @@ struct ContentView: View {
                 Text("将清理选中的 \(selectedIDs.count) 个 App 的 Caches/tmp（约 \(sizeText(selectedSize))），不能撤销。")
             }
             .onChange(of: model.groupID) { _, _ in
+                selectedIDs.removeAll()
                 model.refreshSigning()
+            }
+            .onChange(of: model.apps) { _, currentApps in
+                selectedIDs.formIntersection(Set(currentApps.map(\.id)))
             }
             .task { model.loadApps() }
         }
@@ -285,14 +290,21 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.busy || selectedIDs.isEmpty ||
+                .disabled(model.busy || !model.appGroupReady || !model.groupConfirmed || selectedIDs.isEmpty ||
                           !selectedIDs.contains(where: { model.usage[$0] != nil }))
             }
             .padding(.vertical, 8)
         } header: {
-            Label("有限清理模式", systemImage: "checkmark.shield")
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.shield")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("有限清理模式")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .foregroundStyle(.secondary)
+            .textCase(nil)
         } footer: {
-            Text("扫描总量包含尚未识别的软件数据容器；只清理手动选中的 Caches 与 tmp，不删除整个容器或 Documents。")
+            Text("只清理手动选中项目的 Caches/tmp，不删除 Documents 或整个容器。")
         }
     }
 
@@ -322,7 +334,7 @@ struct ContentView: View {
             }
             .textCase(nil)
         } footer: {
-            Text("显示已获得名称的项目及 Bundle ID。名称可能来自已保存的本地识别表；已排除 \(model.excludedPaths.count) 项。")
+            Text("展示已识别名称及 Bundle ID · 已排除 \(model.excludedPaths.count) 项")
         }
     }
 
@@ -348,7 +360,7 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .textCase(nil)
         } footer: {
-            Text("已找到软件包标识，但当前系统没有提供显示名称；可以从右上角自愿联网尝试补全。")
+            Text("系统未提供显示名称，可通过右上角菜单尝试补全。")
         }
     }
 
@@ -374,7 +386,7 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .textCase(nil)
         } footer: {
-            Text("这里的字符来自数据目录 UUID，不是软件名或 Bundle ID。无法确认属于哪个 App 时默认折叠，请不要凭编号清理重要数据。")
+            Text("UUID 不是软件名称。归属不明时请勿勾选清理。")
         }
     }
 
@@ -432,7 +444,7 @@ struct ContentView: View {
     private var diagnosticsSection: some View {
         Section {
             DisclosureGroup("访问诊断与手动添加", isExpanded: $showingDiagnostics) {
-                Text(model.iconDiagnostics)
+                Text(model.accessDiagnostics)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -456,10 +468,12 @@ struct ContentView: View {
                             Text($0).tag($0)
                         }
                     }
+                    .disabled(model.busy)
                     Toggle("确认该 App Group 专供本清理器使用", isOn: Binding(
                         get: { model.groupConfirmed },
                         set: { model.setGroupConfirmed($0) }
                     ))
+                    .disabled(model.busy)
                     Text("worse_query 会临时替换所选 App Group 的 Library/Caches。共享组可能影响其他 App；只有专用组才能勾选。")
                         .font(.caption)
                         .foregroundStyle(.orange)
