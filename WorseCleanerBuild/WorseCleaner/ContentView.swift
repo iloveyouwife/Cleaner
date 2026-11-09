@@ -3,6 +3,7 @@ import SwiftUI
 // 3105 CleanerView's layout: search, summary, sortable/selectable app rows,
 // selection menu, bulk action, and confirmation. The backend is worse_query.
 struct ContentView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private static let hiddenServiceIDs: Set<String> = [
         "com.apple.GameOverlayUI", "com.apple.HeadphoneProxService",
         "com.apple.PassbookUIService", "com.apple.PDUIApp",
@@ -22,10 +23,7 @@ struct ContentView: View {
     @State private var confirmingOnlineNames = false
     @State private var showingBundleIDOnly = false
     @State private var showingUnidentifiedContainers = false
-    @ScaledMetric(relativeTo: .subheadline) private var chevronSize: CGFloat = 14
     @ScaledMetric(relativeTo: .body) private var progressSize: CGFloat = 22
-    @ScaledMetric(relativeTo: .subheadline) private var chevronWidth: CGFloat = 18
-    @ScaledMetric(relativeTo: .subheadline) private var chevronHeight: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var shieldSize: CGFloat = 16
 
     private var filteredApps: [WCTarget] {
@@ -113,7 +111,7 @@ struct ContentView: View {
                                 Text(model.busy ? "正在处理，请稍候" : model.status)
                                     .font(.subheadline)
                                     .foregroundStyle(.primary)
-                                    .lineLimit(1)
+                                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                                     .truncationMode(.tail)
                             }
                         }
@@ -220,22 +218,19 @@ struct ContentView: View {
     private var summarySection: some View {
         Section {
             VStack(spacing: 14) {
-                HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("已扫描缓存")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Text(sizeText(availableSize))
-                            .font(.system(.title2, design: .rounded, weight: .bold))
-                            .monospacedDigit()
-                    }
-                    Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text("已选择 \(selectedIDs.count) 项")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Text(sizeText(selectedSize))
-                            .font(.headline.monospacedDigit())
+                Group {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: 12) {
+                            scannedCacheMetric
+                            selectedCacheMetric
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        HStack(alignment: .firstTextBaseline, spacing: 16) {
+                            scannedCacheMetric
+                            Spacer(minLength: 8)
+                            selectedCacheMetric
+                        }
                     }
                 }
                 .padding(.top, 4)
@@ -259,12 +254,6 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
-                        if !model.busy {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: chevronSize, weight: .semibold))
-                                .frame(width: chevronWidth, height: chevronHeight)
-                                .foregroundStyle(.tertiary)
-                        }
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
@@ -303,6 +292,28 @@ struct ContentView: View {
             .textCase(nil)
         } footer: {
             Text("仅清理所选项目的 Caches/tmp；保留 Documents 和容器本身。")
+        }
+    }
+
+    private var scannedCacheMetric: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("已扫描缓存")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Text(sizeText(availableSize))
+                .font(.system(.title2, design: .rounded, weight: .bold))
+                .monospacedDigit()
+        }
+    }
+
+    private var selectedCacheMetric: some View {
+        VStack(alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .trailing,
+               spacing: 4) {
+            Text("已选择 \(selectedIDs.count) 项")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Text(sizeText(selectedSize))
+                .font(.headline.monospacedDigit())
         }
     }
 
@@ -398,16 +409,10 @@ struct ContentView: View {
 
     private var signingWarning: some View {
         Section {
-            HStack(spacing: CleanerLayout.settingsRowSpacing) {
-                CleanerSettingsSymbol(name: "exclamationmark.triangle", tint: .orange)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("请确认 App Group")
-                        .font(.body.weight(.medium))
-                    Text("未确认前无法扫描或清理缓存。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            CleanerSettingsLabel(symbol: "exclamationmark.triangle",
+                                 title: "请确认 App Group",
+                                 subtitle: "未确认前无法扫描或清理缓存。",
+                                 tint: .orange)
             Button("打开高级设置") { showingAdvancedSettings = true }
         }
     }

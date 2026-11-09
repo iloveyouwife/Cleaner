@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Native grouped Form. Typography and symbols use the shared UI components.
 struct CleanerAdvancedSettingsView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ObservedObject var model: WorseCleanerModel
     @Binding var manualPath: String
     @Binding var showingDiagnostics: Bool
@@ -23,23 +24,18 @@ struct CleanerAdvancedSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    HStack(alignment: .top, spacing: CleanerLayout.settingsRowSpacing) {
-                        settingsIcon("checkmark.shield", color: .accentColor)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("缓存访问权限")
-                                .font(.body.weight(.medium))
-                            Text(model.appGroupReady
-                                 ? "已找到可访问的 App Group"
-                                 : "当前签名没有可访问的 App Group")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                    Group {
+                        if dynamicTypeSize.isAccessibilitySize {
+                            VStack(alignment: .leading, spacing: 8) {
+                                accessStatusLabel
+                                accessStatusPill
+                            }
+                        } else {
+                            HStack(spacing: CleanerLayout.settingsRowSpacing) {
+                                accessStatusLabel
+                                accessStatusPill
+                            }
                         }
-                        Spacer(minLength: 4)
-                        CleanerStatusPill(
-                            title: !model.appGroupReady ? "不可用" :
-                                   (model.groupConfirmed ? "已确认" : "待确认"),
-                            tint: model.groupConfirmed ? .green : .orange
-                        )
                     }
                     .padding(.vertical, 5)
                 } header: {
@@ -48,12 +44,11 @@ struct CleanerAdvancedSettingsView: View {
 
                 Section {
                     if accessibleGroups.isEmpty {
-                        HStack(spacing: CleanerLayout.settingsRowSpacing) {
-                            settingsIcon("exclamationmark.triangle", color: .orange)
-                            Text("没有可选的 App Group")
-                                .font(.body)
-                                .foregroundStyle(.secondary)
-                        }
+                        CleanerSettingsLabel(symbol: "exclamationmark.triangle",
+                                             title: "没有可选的 App Group",
+                                             tint: .orange,
+                                             titleColor: .secondary,
+                                             emphasized: false)
                     } else {
                         Picker("App Group", selection: $model.groupID) {
                             ForEach(accessibleGroups, id: \.self) { group in
@@ -79,21 +74,9 @@ struct CleanerAdvancedSettingsView: View {
                     Button {
                         model.deepDiscoverApps()
                     } label: {
-                        HStack(spacing: CleanerLayout.settingsRowSpacing) {
-                            settingsIcon("arrow.triangle.2.circlepath")
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("深度发现 App 容器")
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                Text("按 inode 搜索 · 可能需要几分钟")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
+                        CleanerSettingsLabel(symbol: "arrow.triangle.2.circlepath",
+                                             title: "深度发现 App 容器",
+                                             subtitle: "按 inode 搜索 · 可能需要几分钟")
                         .padding(.vertical, 5)
                         .contentShape(Rectangle())
                     }
@@ -114,11 +97,10 @@ struct CleanerAdvancedSettingsView: View {
                         model.addManualPath(manualPath.trimmingCharacters(in: .whitespacesAndNewlines))
                         manualPath = ""
                     } label: {
-                        HStack(spacing: CleanerLayout.settingsRowSpacing) {
-                            settingsIcon("plus.circle", color: .accentColor)
-                            Text("添加 App 容器")
-                                .font(.body)
-                        }
+                        CleanerSettingsLabel(symbol: "plus.circle",
+                                             title: "添加 App 容器",
+                                             tint: .accentColor,
+                                             emphasized: false)
                     }
                     .disabled(manualPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
                 } header: {
@@ -178,12 +160,8 @@ struct CleanerAdvancedSettingsView: View {
                         }
                         .padding(.top, 6)
                     } label: {
-                        HStack(spacing: CleanerLayout.settingsRowSpacing) {
-                            settingsIcon("doc.text.magnifyingglass")
-                            Text("查看访问诊断日志")
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(.primary)
-                        }
+                        CleanerSettingsLabel(symbol: "doc.text.magnifyingglass",
+                                             title: "查看访问诊断日志")
                     }
                 } header: {
                     CleanerSectionHeading("诊断信息")
@@ -202,8 +180,22 @@ struct CleanerAdvancedSettingsView: View {
         }
     }
 
-    private func settingsIcon(_ name: String, color: Color = .primary) -> some View {
-        CleanerSettingsSymbol(name: name, tint: color)
+    private var accessStatusLabel: some View {
+        CleanerSettingsLabel(
+            symbol: "checkmark.shield",
+            title: "缓存访问权限",
+            subtitle: model.appGroupReady
+                ? "已找到可访问的 App Group"
+                : "当前签名没有可访问的 App Group",
+            tint: .accentColor
+        )
     }
 
+    private var accessStatusPill: some View {
+        CleanerStatusPill(
+            title: !model.appGroupReady ? "不可用" :
+                   (model.groupConfirmed ? "已确认" : "待确认"),
+            tint: model.appGroupReady && model.groupConfirmed ? .green : .orange
+        )
+    }
 }

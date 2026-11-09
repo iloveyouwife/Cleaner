@@ -32,6 +32,7 @@ on:
       - worse-query-cleaner-v27
       - worse-query-cleaner-v44
       - worse-query-cleaner-v45
+      - worse-query-cleaner-v46
   workflow_dispatch:
 
 permissions:
@@ -96,7 +97,6 @@ jobs:
       # Best-effort visual QA for the SwiftUI settings layout. Simulator-only
       # launch arguments bypass discovery, never the signed-device safeguards.
       - name: Capture native UI layouts
-        continue-on-error: true
         run: |
           set -euo pipefail
           xcodebuild \
@@ -156,11 +156,14 @@ jobs:
             sleep 3
             xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-accessibility-medium.png
             xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+            xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
+            sleep 3
+            xcrun simctl io "$simulator_id" screenshot ui-screenshots/settings-accessibility-medium.png
+            xcrun simctl terminate "$simulator_id" com.example.worsecleaner
             xcrun simctl ui "$simulator_id" content_size large || true
           fi
 
       - name: Capture native toolbar menus with UI tests
-        continue-on-error: true
         run: |
           set -euo pipefail
           simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"

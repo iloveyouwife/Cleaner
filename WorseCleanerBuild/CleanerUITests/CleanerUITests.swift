@@ -56,4 +56,28 @@ final class CleanerUITests: XCTestCase {
         openMenu("更多选项", in: app)
         capture("more-menu")
     }
+
+    func testAdvancedSettingsRowsAndDiagnostics() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-captureAdvancedSettings"]
+        app.launch()
+
+        let access = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "缓存访问权限")
+        ).firstMatch
+        XCTAssertTrue(access.waitForExistence(timeout: 15), "Missing access status row")
+
+        let discovery = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "深度发现 App 容器")
+        ).firstMatch
+        XCTAssertTrue(discovery.exists, "Missing discovery button")
+        capture("advanced-settings-first-rows")
+
+        app.swipeUp()
+        let diagnostics = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "查看访问诊断日志")
+        ).firstMatch
+        XCTAssertTrue(diagnostics.waitForExistence(timeout: 5), "Missing diagnostics row")
+        capture("advanced-settings-diagnostics")
+    }
 }

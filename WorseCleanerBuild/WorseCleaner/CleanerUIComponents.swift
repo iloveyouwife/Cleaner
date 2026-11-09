@@ -3,9 +3,7 @@ import SwiftUI
 /// Shared presentation rules for content rows. System text styles remain
 /// dynamic; only stable icon columns and content spacing use point constants.
 enum CleanerLayout {
-    static let settingsIconColumn: CGFloat = 22
     static let settingsRowSpacing: CGFloat = 10
-    static let listRowVerticalInset: CGFloat = 6
 }
 
 struct CleanerSettingsSymbol: View {
@@ -20,6 +18,40 @@ struct CleanerSettingsSymbol: View {
             .frame(width: iconSize,
                    height: iconSize)
             .accessibilityHidden(true)
+    }
+}
+
+/// A single leading-icon/title layout for every Settings row. The symbol's
+/// 22-point scaled slot follows the first text line, not the combined height
+/// of a title and subtitle (which caused the v45 alignment regression).
+struct CleanerSettingsLabel: View {
+    let symbol: String
+    let title: String
+    var subtitle: String? = nil
+    var tint: Color = .primary
+    var titleColor: Color = .primary
+    var emphasized: Bool = true
+
+    var body: some View {
+        HStack(alignment: .top, spacing: CleanerLayout.settingsRowSpacing) {
+            CleanerSettingsSymbol(name: symbol, tint: tint)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(emphasized ? .body.weight(.medium) : .body)
+                    .foregroundStyle(titleColor)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -183,7 +215,7 @@ struct CleanerContentSymbol: View {
 
     var body: some View {
         Image(systemName: name)
-            .font(.body)
+            .font(.body.weight(.medium))
             .frame(width: iconSize, height: iconSize)
             .accessibilityHidden(true)
     }
