@@ -828,15 +828,20 @@ struct ContentView: View {
         }
     }
 
-    /// Fit each popover to its longest action, with the same inset and
-    /// inter-row spacing for the left, center and right toolbar menus.
+    /// Fit each popover to its longest action. The horizontal inset needs
+    /// extra optical space because the first/last glyphs sit very close to
+    /// the native popover's curved edges when only 5pt is used.
     private func compactPopup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             content()
         }
-        .padding(5)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 5)
         .fixedSize(horizontal: true, vertical: true)
         .presentationCompactAdaptation(.popover)
+        // Keep the rounded-rectangle style of iOS Settings rather than the
+        // capsule-like corners inherited by a small system popover.
+        .presentationCornerRadius(22)
     }
 
     private func compactPopupAction(_ title: String, icon: String,
