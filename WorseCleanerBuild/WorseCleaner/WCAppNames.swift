@@ -1,5 +1,11 @@
 import Foundation
 import Darwin
+import UIKit
+
+struct WCAppCatalog {
+    let names: [String: String]
+    let icons: [String: UIImage]
+}
 
 // The system may hide third-party LSApplicationProxy display names even when
 // worse_query exposes their data-container Bundle IDs. Keep two independent
@@ -35,14 +41,92 @@ enum WCAppNames {
         names[bundleID] ?? offlineNames[bundleID]
     }
 
-    static func catalog(groupID: String) -> [String: String] {
+    static func savedNames() -> [String: String] {
+        UserDefaults.standard.dictionary(forKey: "wc.verifiedAppStoreNames") as? [String: String] ?? [:]
+    }
+
+    static func storeVerifiedNames(_ verified: [String: String]) {
+        var names = savedNames()
+        names.merge(verified) { _, new in new }
+        UserDefaults.standard.set(names, forKey: "wc.verifiedAppStoreNames")
+    }
+
+    /// Queries only the public App Store name (not artwork), after an explicit
+    /// user action. Bundle IDs are sent to Apple's API, never to our server.
+    static func appStoreName(for bundleID: String) async -> String? {
+        for country in ["cn", "us"] {
+            var components = URLComponents(string: "https://itunes.apple.com/lookup")!
+            components.queryItems = [
+                URLQueryItem(name: "bundleId", value: bundleID),
+                URLQueryItem(name: "country", value: country)
+            ]
+            guard let url = components.url else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 8
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  data.count < 256_000,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let results = json["results"] as? [[String: Any]] else { continue }
+            for result in results {
+                guard let returnedID = result["bundleId"] as? String,
+                      returnedID.caseInsensitiveCompare(bundleID) == .orderedSame else { continue }
+                let name = (result["trackName"] as? String)
+                    ?? (result["trackCensoredName"] as? String)
+                if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return name
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func installedName(at appPath: String, info: [String: Any]) -> String? {
+        let bundle = Bundle(path: appPath)
+        let current = bundle?.localizedInfoDictionary ?? [:]
+        let dictionaries: [[String: Any]] = [current, info]
+        for dictionary in dictionaries {
+            for key in ["CFBundleDisplayName", "CFBundleName"] {
+                if let label = dictionary[key] as? String, !label.isEmpty { return label }
+            }
+        }
+        return nil
+    }
+
+    private static func installedIcon(at appPath: String, info: [String: Any]) -> UIImage? {
+        let bundle = Bundle(path: appPath)
+        var iconNames = [String]()
+        for plistKey in ["CFBundleIcons", "CFBundleIcons~ipad"] {
+            if let icons = info[plistKey] as? [String: Any],
+               let primary = icons["CFBundlePrimaryIcon"] as? [String: Any] {
+                iconNames += primary["CFBundleIconFiles"] as? [String] ?? []
+                if let name = primary["CFBundleIconName"] as? String { iconNames.append(name) }
+            }
+        }
+        if let name = info["CFBundleIconFile"] as? String { iconNames.append(name) }
+        if let files = info["CFBundleIconFiles"] as? [String] { iconNames += files }
+        for name in iconNames.reversed() {
+            let base = (name as NSString).deletingPathExtension
+            if let bundle, let image = UIImage(named: base, in: bundle, compatibleWith: nil) {
+                return image
+            }
+            for file in [name, base + "@3x.png", base + "@2x.png", base + ".png"] {
+                if let image = UIImage(contentsOfFile: appPath + "/" + file) { return image }
+            }
+        }
+        return nil
+    }
+
+    static func catalog(groupID: String) -> WCAppCatalog {
         var names = offlineNames
+        names.merge(savedNames()) { _, saved in saved }
+        var icons: [String: UIImage] = [:]
         let root = "/var/containers/Bundle/Application"
         // This mirrors 3105's app-bundle metadata catalog. It is read-only.
         // A dedicated App Group remains mandatory because worse_query
         // temporarily replaces its Library/Caches while acquiring a token.
         let lease = worse_query(root, groupID, false, true)
-        guard lease > 0 else { return names }
+        guard lease > 0 else { return WCAppCatalog(names: names, icons: icons) }
         defer { worse_query_release(lease) }
 
         let fm = FileManager.default
@@ -61,15 +145,14 @@ enum WCAppNames {
                       ) as? [String: Any],
                       let bundleID = info["CFBundleIdentifier"] as? String,
                       !bundleID.isEmpty else { continue }
-                let localized = Bundle(path: appPath)?.localizedInfoDictionary ?? [:]
-                let name = (localized["CFBundleDisplayName"] as? String)
-                    ?? (localized["CFBundleName"] as? String)
-                    ?? (info["CFBundleDisplayName"] as? String)
-                    ?? (info["CFBundleName"] as? String)
-                    ?? ""
-                if !name.isEmpty { names[bundleID] = name }
+                if let name = installedName(at: appPath, info: info) {
+                    names[bundleID] = name
+                }
+                if let icon = installedIcon(at: appPath, info: info) {
+                    icons[bundleID] = icon
+                }
             }
         }
-        return names
+        return WCAppCatalog(names: names, icons: icons)
     }
 }

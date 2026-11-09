@@ -101,6 +101,28 @@ NSString *WCLookupApplicationName(NSString *bundleID) {
     return nil;
 }
 
+NSData *WCLookupApplicationIconData(NSString *bundleID) {
+    if (!WCValidIdentifier(bundleID)) return nil;
+    WCLoadLaunchServices();
+    Class proxyClass = NSClassFromString(@"LSApplicationProxy");
+    SEL proxySelector = NSSelectorFromString(@"applicationProxyForIdentifier:");
+    if (!proxyClass || ![proxyClass respondsToSelector:proxySelector]) return nil;
+    id proxy = ((id (*)(id, SEL, id))objc_msgSend)(proxyClass, proxySelector, bundleID);
+    if (!proxy) return nil;
+
+    // Same private, read-only icon method and variants as 3105's
+    // AppIconHelper.m. Some iOS versions deny it to ordinary signed apps.
+    SEL iconSelector = NSSelectorFromString(@"iconDataForVariant:");
+    if (![proxy respondsToSelector:iconSelector]) return nil;
+    const int variants[] = {2, 0, 1, 3, 4, 5, 6, 7, 15};
+    for (NSUInteger i = 0; i < sizeof(variants) / sizeof(variants[0]); ++i) {
+        id data = ((id (*)(id, SEL, int))objc_msgSend)(proxy, iconSelector, variants[i]);
+        if ([data isKindOfClass:NSData.class] && [data length] > 0 &&
+            [data length] <= 8 * 1024 * 1024) return data;
+    }
+    return nil;
+}
+
 static BOOL WCValidIdentifier(NSString *value) {
     if (value.length < 3 || value.length > 255) return NO;
     NSCharacterSet *chars = [NSCharacterSet characterSetWithCharactersInString:

@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var showingDiagnostics = false
     @State private var showingAdvancedSettings = false
     @State private var showingExcluded = false
+    @State private var confirmingOnlineNames = false
 
     private var filteredApps: [WCTarget] {
         let matching = model.apps.filter {
@@ -91,6 +92,10 @@ struct ContentView: View {
                     .disabled(model.busy)
                     .accessibilityLabel("刷新 App 列表")
                     Menu {
+                        Button("联网补全未识别的 App 名称", systemImage: "text.magnifyingglass") {
+                            confirmingOnlineNames = true
+                        }
+                        .disabled(model.busy)
                         Button("管理已排除 App（\(model.excludedPaths.count)）", systemImage: "eye.slash") {
                             showingExcluded = true
                         }
@@ -104,6 +109,13 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingAdvancedSettings) { advancedSettingsSheet }
             .sheet(isPresented: $showingExcluded) { excludedAppsSheet }
+            .confirmationDialog("从 Apple 补全 App 名称", isPresented: $confirmingOnlineNames,
+                                titleVisibility: .visible) {
+                Button("向 Apple 查询名称") { model.completeMissingNamesOnline() }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("将向 Apple 的公开商店接口发送未识别 App 的 Bundle ID，仅用于获取软件名称，不上传缓存文件，不下载商店图标。每次最多查询 80 个 App。")
+            }
             .alert("确认清理缓存", isPresented: $confirmingClean) {
                 Button("确认删除", role: .destructive) {
                     model.cleanSelected(selectedIDs)
@@ -182,11 +194,19 @@ struct ContentView: View {
                         else { selectedIDs.insert(app.id) }
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: "app.fill")
-                                .font(.system(size: 24))
-                                .foregroundStyle(.blue)
-                                .frame(width: 36, height: 36)
-                                .background(.blue.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+                            if let icon = model.appIcons[app.bundleID] {
+                                Image(uiImage: icon)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 36, height: 36)
+                                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                            } else {
+                                Image(systemName: "app.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundStyle(.blue)
+                                    .frame(width: 36, height: 36)
+                                    .background(.blue.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+                            }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(app.name).font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.primary)
@@ -225,7 +245,7 @@ struct ContentView: View {
             }
             .textCase(nil)
         } footer: {
-            Text("自动深度发现可能耗时数分钟；部分容器若无法获取系统元数据，将显示 Bundle ID 或容器编号。已排除 \(model.excludedPaths.count) 个 App。")
+            Text("优先显示本机安装的 App 名称和图标；iOS 拒绝提供元数据时仍可能显示 Bundle ID。右上角可自愿联网补全名称。已排除 \(model.excludedPaths.count) 个 App。")
         }
     }
 

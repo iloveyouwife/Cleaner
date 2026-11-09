@@ -1,9 +1,20 @@
 import SwiftUI
 
+private enum WCIconResolver {
+    static func icon(for bundleID: String, localIcons: [String: UIImage]) -> UIImage? {
+        if let icon = localIcons[bundleID] { return icon }
+        guard !bundleID.isEmpty, let data = WCLookupApplicationIconData(bundleID) else {
+            return nil
+        }
+        return UIImage(data: data as Data)
+    }
+}
+
 @MainActor
 final class WorseCleanerModel: ObservableObject {
     @Published var apps: [WCTarget] = []
     @Published var usage: [String: LimitedCleanerUsage] = [:]
+    @Published var appIcons: [String: UIImage] = [:]
     @Published var busy = false
     @Published var status = "尚未扫描任何 App。"
     @Published var appGroupReady = false
@@ -128,15 +139,19 @@ final class WorseCleanerModel: ObservableObject {
         status = "正在扫描 \(target.name)……"
         let selectedGroup = groupID
         queue.async {
-            let names = WCAppNames.catalog(groupID: selectedGroup)
+            let catalog = WCAppNames.catalog(groupID: selectedGroup)
             let result = Result {
-                try WCFileAccess.inspect(target, groupID: selectedGroup, knownNames: names)
+                try WCFileAccess.inspect(target, groupID: selectedGroup, knownNames: catalog.names)
+            }
+            let icon = (try? result.get()).flatMap {
+                WCIconResolver.icon(for: $0.target.bundleID, localIcons: catalog.icons)
             }
             DispatchQueue.main.async {
                 self.busy = false
                 switch result {
                 case .success(let inspection):
                     self.usage[target.id] = inspection.usage
+                    if let icon { self.appIcons[inspection.target.bundleID] = icon }
                     if let index = self.apps.firstIndex(where: { $0.path == target.path }) {
                         self.apps[index] = inspection.target
                     }
@@ -186,9 +201,10 @@ final class WorseCleanerModel: ObservableObject {
         scannedAppCount = 0
         status = "正在检查已发现 App 的缓存权限……"
         queue.async {
-            let names = WCAppNames.catalog(groupID: selectedGroup)
+            let catalog = WCAppNames.catalog(groupID: selectedGroup)
             var results: [String: LimitedCleanerUsage] = [:]
             var identities: [String: WCTarget] = [:]
+            var icons = catalog.icons
             var failures = 0
             var identityCounts: [WCIdentitySource: Int] = [:]
             var namedCount = 0
@@ -196,10 +212,16 @@ final class WorseCleanerModel: ObservableObject {
             var metadataErrors: [Int32: Int] = [:]
             for (index, target) in targets.enumerated() {
                 if let inspection = try? WCFileAccess.inspect(
-                    target, groupID: selectedGroup, knownNames: names
+                    target, groupID: selectedGroup, knownNames: catalog.names
                 ) {
                     results[target.id] = inspection.usage
                     identities[target.id] = inspection.target
+                    if icons[inspection.target.bundleID] == nil,
+                       let icon = WCIconResolver.icon(
+                        for: inspection.target.bundleID, localIcons: catalog.icons
+                       ) {
+                        icons[inspection.target.bundleID] = icon
+                    }
                     identityCounts[inspection.identitySource, default: 0] += 1
                     if inspection.target.name != inspection.target.bundleID &&
                         !inspection.target.name.hasPrefix("App 容器 ") {
@@ -217,6 +239,7 @@ final class WorseCleanerModel: ObservableObject {
             }
             DispatchQueue.main.async {
                 self.usage.merge(results) { _, newer in newer }
+                self.appIcons.merge(icons) { _, new in new }
                 self.apps = self.apps.map { identities[$0.id] ?? $0 }
                 self.busy = false
                 let stats = "名称识别：\(namedCount) 个真实名称、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个待识别。"
@@ -226,6 +249,48 @@ final class WorseCleanerModel: ObservableObject {
                 self.status = "完成：扫描 \(targets.count) 个容器，成功 \(results.count)，访问失败 \(failures)。" +
                     stats + methods + (access.isEmpty ? "" : " 元数据读取错误：\(access)。")
             }
+        }
+    }
+
+    /// Optional recovery when iOS blocks installed app Info.plist and
+    /// LaunchServices names. The UI must explicitly disclose the Apple lookup.
+    func completeMissingNamesOnline() {
+        guard !busy else { return }
+        let candidates = Array(Set(apps.compactMap { app -> String? in
+            guard app.name == app.bundleID, app.bundleID.contains("."),
+                  !app.bundleID.hasPrefix("group.") else { return nil }
+            return app.bundleID
+        })).sorted().prefix(80)
+        guard !candidates.isEmpty else {
+            status = "没有需要联网补全名称的 App。"
+            return
+        }
+        busy = true
+        status = "向 Apple 查询首批 (candidates.count) 个未知 App 的公开名称……"
+        Task {
+            var found: [String: String] = [:]
+            let ids = Array(candidates)
+            for start in stride(from: 0, to: ids.count, by: 5) {
+                let batch = Array(ids[start..<min(start + 5, ids.count)])
+                await withTaskGroup(of: (String, String?).self) { group in
+                    for id in batch {
+                        group.addTask { (id, await WCAppNames.appStoreName(for: id)) }
+                    }
+                    for await (id, name) in group {
+                        if let name { found[id] = name }
+                    }
+                }
+                status = "已查询 (min(start + 5, ids.count))/\(ids.count) 个 App，找到 (found.count) 个名称。"
+            }
+            WCAppNames.storeVerifiedNames(found)
+            apps = apps.map { app in
+                guard app.name == app.bundleID, let name = found[app.bundleID] else {
+                    return app
+                }
+                return (try? WCTarget(bundleID: app.bundleID, name: name, path: app.path)) ?? app
+            }
+            busy = false
+            status = "联网名称补全完成：本次识别 (found.count) 个，其余可能未在 Apple 商店收录或已下架。"
         }
     }
 
