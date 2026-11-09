@@ -442,10 +442,16 @@ struct ContentView: View {
             Button {
                 showingExcluded = true
             } label: {
-                Label(model.excludedPaths.isEmpty
-                      ? "管理已排除 App"
-                      : "管理已排除 App（\(model.excludedPaths.count)）",
-                      systemImage: "circle.slash")
+                Label {
+                    Text(model.excludedPaths.isEmpty
+                         ? "管理已排除 App"
+                         : "管理已排除 App（\(model.excludedPaths.count)）")
+                } icon: {
+                    // Same SF Symbol as the exclude action; rotating the whole
+                    // circle turns its centered dash into an equal-length slash.
+                    Image(systemName: "minus.circle")
+                        .rotationEffect(.degrees(-45))
+                }
             }
         } label: {
             CleanerToolbarSymbol(name: "checklist")
