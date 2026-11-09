@@ -171,6 +171,10 @@ struct ContentView: View {
                         }
                         .accessibilityLabel("更多选项")
                     }
+                    // The custom menu is narrower than the system toolbar
+                    // capsule. Hide that capsule while a right-side menu is
+                    // visible so it cannot protrude behind the menu's edge.
+                    .opacity(showingSortPopup || showingMorePopup ? 0 : 1)
                 }
             }
             .sheet(isPresented: $showingAdvancedSettings) { advancedSettingsSheet }
