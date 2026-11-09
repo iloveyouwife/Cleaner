@@ -867,11 +867,11 @@ struct ContentView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: menuSymbolSize(icon), height: menuSymbolSize(icon))
-                    .frame(width: 14.5, height: 14.5, alignment: .center)
+                    .frame(width: 14, height: 14, alignment: .center)
                     .opacity(symbolVisible ? 1 : 0)
                     .accessibilityHidden(true)
                 Text(title)
-                    .font(.system(size: 15.5))
+                    .font(.subheadline)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -934,8 +934,8 @@ struct ContentView: View {
     /// nominal font size. Keep every symbol within 11–12pt optical bounds.
     private func menuSymbolSize(_ symbol: String) -> CGFloat {
         switch symbol {
-        case "checkmark", "magnifyingglass", "gearshape": return 11.5
-        default: return 12.5
+        case "checkmark", "magnifyingglass", "gearshape": return 11
+        default: return 12
         }
     }
 
