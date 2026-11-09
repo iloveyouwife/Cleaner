@@ -22,6 +22,7 @@ struct ContentView: View {
     @State private var confirmingOnlineNames = false
     @State private var showingBundleIDOnly = false
     @State private var showingUnidentifiedContainers = false
+    @ScaledMetric(relativeTo: .subheadline) private var chevronSize: CGFloat = 14
 
     private var filteredApps: [WCTarget] {
         let matching = model.apps.filter {
@@ -191,7 +192,12 @@ struct ContentView: View {
                 // Simulator-only layout QA. Keep the production discovery path
                 // untouched and avoid privileged scans during UI screenshots.
                 let arguments = ProcessInfo.processInfo.arguments
-                if arguments.contains("-captureAdvancedSettings") {
+                if arguments.contains(where: { $0.hasPrefix("-capturePopulated") }) {
+                    CleanerScreenshotFixtures.install(into: model)
+                    if arguments.contains("-capturePopulatedSelection") {
+                        selectedIDs = Set(model.apps.prefix(2).map(\.id))
+                    }
+                } else if arguments.contains("-captureAdvancedSettings") {
                     showingAdvancedSettings = true
                 } else if arguments.contains("-captureExcludedApps") {
                     showingExcluded = true
@@ -251,7 +257,7 @@ struct ContentView: View {
                         Spacer(minLength: 0)
                         if !model.busy {
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: chevronSize, weight: .semibold))
                                 .frame(width: 18, height: 22)
                                 .foregroundStyle(.tertiary)
                         }
@@ -283,7 +289,7 @@ struct ContentView: View {
         } header: {
             HStack(alignment: .center, spacing: 4) {
                 Image(systemName: "checkmark.shield")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.footnote.weight(.semibold))
                     .frame(width: 16, height: 16, alignment: .center)
                     .accessibilityHidden(true)
                 Text("有限清理模式")
@@ -332,6 +338,8 @@ struct ContentView: View {
                                   expanded: showingBundleIDOnly)
             }
             .buttonStyle(.plain)
+            .accessibilityValue(showingBundleIDOnly ? "已展开" : "已折叠")
+            .accessibilityHint(showingBundleIDOnly ? "双击收起此分组" : "双击展开此分组")
         } footer: {
             if showingBundleIDOnly || !searchText.isEmpty {
                 Text("这些项目有 Bundle ID，但系统未返回名称；可尝试联网补全。")
@@ -354,6 +362,8 @@ struct ContentView: View {
                                   expanded: showingUnidentifiedContainers)
             }
             .buttonStyle(.plain)
+            .accessibilityValue(showingUnidentifiedContainers ? "已展开" : "已折叠")
+            .accessibilityHint(showingUnidentifiedContainers ? "双击收起此分组" : "双击展开此分组")
         } footer: {
             if showingUnidentifiedContainers || !searchText.isEmpty {
                 Text("UUID 不是 App 名称。无法确认归属时请勿清理。")
@@ -456,10 +466,7 @@ struct ContentView: View {
     }
 
     private func contentIcon(_ symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.body)
-            .frame(width: 22, height: 22)
-            .accessibilityHidden(true)
+        CleanerContentSymbol(name: symbol)
     }
 
     private func isInternalSystemService(_ bundleID: String) -> Bool {
