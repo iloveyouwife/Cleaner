@@ -736,7 +736,11 @@ struct ContentView: View {
 
     private func settingsIcon(_ name: String, color: Color = .primary) -> some View {
         Image(systemName: name)
-            .font(.system(size: 17, weight: .medium))
+            // SF Symbols have different intrinsic glyph extents at the same
+            // font size. Normalize their drawn bounds before centering them.
+            .resizable()
+            .scaledToFit()
+            .frame(width: 17, height: 17)
             .foregroundStyle(color)
             .frame(width: 20, height: 20, alignment: .center)
             .accessibilityHidden(true)
@@ -824,15 +828,14 @@ struct ContentView: View {
         }
     }
 
-    /// The native Menu reserves an OS-controlled icon column. Keep the left
-    /// and right popovers on one compact set of optical layout metrics.
+    /// Fit each popover to its longest action, with the same inset and
+    /// inter-row spacing for the left, center and right toolbar menus.
     private func compactPopup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 5) {
             content()
         }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 3)
-        .frame(width: 250)
+        .padding(5)
+        .fixedSize(horizontal: true, vertical: true)
         .presentationCompactAdaptation(.popover)
     }
 
@@ -855,12 +858,13 @@ struct ContentView: View {
                 Text(title)
                     .font(.subheadline)
                     .lineLimit(1)
-                Spacer(minLength: 0)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .foregroundStyle(.primary)
-            .frame(minHeight: 36)
-            .padding(.horizontal, 10)
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            // Keep the visual row compact; its content never stretches to a
+            // previously fixed 250pt width.
+            .frame(minHeight: 24, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(CompactPopupButtonStyle())
         .disabled(!enabled)
