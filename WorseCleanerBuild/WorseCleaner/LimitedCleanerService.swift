@@ -30,8 +30,18 @@ struct LimitedCleanerResult: Equatable {
     }
 }
 
-enum LimitedCleanerError: Error, Equatable {
+enum LimitedCleanerError: LocalizedError, Equatable {
     case unsafeContainerRoot
+    case inaccessible(String, Int32)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsafeContainerRoot:
+            return "无法安全打开 App 容器根目录。"
+        case .inaccessible(let path, let code):
+            return "缓存内部的 \(path) 不可读取（errno=\(code)）；不能将它计为 0 KB。"
+        }
+    }
 }
 
 enum LimitedCleanerService {
@@ -46,11 +56,11 @@ enum LimitedCleanerService {
         rootValidator: ContainerRootValidator
     ) throws -> LimitedCleanerUsage {
         try withValidatedRootDescriptor(containerURL, rootValidator: rootValidator) { rootDescriptor in
-            let cache = scanAllowedDirectory(
+            let cache = try scanAllowedDirectory(
                 components: ["Library", "Caches"],
                 rootDescriptor: rootDescriptor
             )
-            let temporary = scanAllowedDirectory(
+            let temporary = try scanAllowedDirectory(
                 components: ["tmp"],
                 rootDescriptor: rootDescriptor
             )
@@ -116,15 +126,40 @@ enum LimitedCleanerService {
     private static func scanAllowedDirectory(
         components: [String],
         rootDescriptor: Int32
-    ) -> ScanSummary {
-        guard let directoryDescriptor = openDirectory(
+    ) throws -> ScanSummary {
+        guard let directoryDescriptor = try openDirectoryStrict(
             components: components,
             relativeTo: rootDescriptor
         ) else {
             return .empty
         }
         defer { close(directoryDescriptor) }
-        return scanDirectory(directoryDescriptor)
+        return try scanDirectory(directoryDescriptor)
+    }
+
+    private static func openDirectoryStrict(
+        components: [String],
+        relativeTo rootDescriptor: Int32
+    ) throws -> Int32? {
+        var descriptor = dup(rootDescriptor)
+        guard descriptor >= 0 else {
+            throw LimitedCleanerError.inaccessible("容器句柄", errno)
+        }
+        for component in components {
+            let next = component.withCString {
+                openat(descriptor, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+            }
+            let openError = errno
+            close(descriptor)
+            guard next >= 0 else {
+                if openError == ENOENT { return nil }
+                throw LimitedCleanerError.inaccessible(
+                    components.joined(separator: "/"), openError
+                )
+            }
+            descriptor = next
+        }
+        return descriptor
     }
 
     private static func openDirectory(
@@ -149,9 +184,9 @@ enum LimitedCleanerService {
         return currentDescriptor
     }
 
-    private static func scanDirectory(_ directoryDescriptor: Int32) -> ScanSummary {
+    private static func scanDirectory(_ directoryDescriptor: Int32) throws -> ScanSummary {
         var result = ScanSummary.empty
-        forEachEntry(in: directoryDescriptor) { name, information in
+        try forEachEntryStrict(in: directoryDescriptor) { name, information in
             switch information.st_mode & S_IFMT {
             case S_IFREG:
                 result.bytes += max(0, Int64(information.st_size))
@@ -164,9 +199,12 @@ enum LimitedCleanerService {
                         O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
                     )
                 }
-                guard childDescriptor >= 0 else { return }
-                let nested = scanDirectory(childDescriptor)
-                close(childDescriptor)
+                guard childDescriptor >= 0 else {
+                    if errno == ENOENT { return }
+                    throw LimitedCleanerError.inaccessible(name, errno)
+                }
+                defer { close(childDescriptor) }
+                let nested = try scanDirectory(childDescriptor)
                 result.bytes += nested.bytes
                 result.itemCount += nested.itemCount
             default:
@@ -175,6 +213,46 @@ enum LimitedCleanerService {
             }
         }
         return result
+    }
+
+    private static func forEachEntryStrict(
+        in directoryDescriptor: Int32,
+        body: (String, stat) throws -> Void
+    ) throws {
+        let iterationDescriptor = dup(directoryDescriptor)
+        guard iterationDescriptor >= 0 else {
+            throw LimitedCleanerError.inaccessible("目录句柄", errno)
+        }
+        guard let directory = fdopendir(iterationDescriptor) else {
+            let error = errno
+            close(iterationDescriptor)
+            throw LimitedCleanerError.inaccessible("目录遍历", error)
+        }
+        defer { closedir(directory) }
+
+        while true {
+            errno = 0
+            guard let entry = readdir(directory) else {
+                if errno != 0 { throw LimitedCleanerError.inaccessible("readdir", errno) }
+                break
+            }
+            let name = withUnsafePointer(to: &entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN) + 1) {
+                    String(cString: $0)
+                }
+            }
+            if name == "." || name == ".." { continue }
+
+            var information = stat()
+            let status = name.withCString {
+                fstatat(directoryDescriptor, $0, &information, AT_SYMLINK_NOFOLLOW)
+            }
+            if status != 0 {
+                if errno == ENOENT { continue }
+                throw LimitedCleanerError.inaccessible(name, errno)
+            }
+            try body(name, information)
+        }
     }
 
     private static func removeDirectoryContents(
