@@ -6,6 +6,7 @@ struct CleanerAdvancedSettingsView: View {
     @Binding var manualPath: String
     @Binding var showingDiagnostics: Bool
     @Binding var isPresented: Bool
+    @ScaledMetric(relativeTo: .subheadline) private var diagnosticIconSize: CGFloat = 18
 
     private var accessibleGroups: [String] {
         #if targetEnvironment(simulator)
@@ -22,7 +23,7 @@ struct CleanerAdvancedSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    HStack(spacing: CleanerLayout.settingsRowSpacing) {
+                    HStack(alignment: .top, spacing: CleanerLayout.settingsRowSpacing) {
                         settingsIcon("checkmark.shield", color: .accentColor)
                         VStack(alignment: .leading, spacing: 3) {
                             Text("缓存访问权限")
@@ -147,10 +148,10 @@ struct CleanerAdvancedSettingsView: View {
                                     HStack(alignment: .top, spacing: 8) {
                                         Image(systemName: accessibleGroups.contains(group)
                                               ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                            .font(.system(size: 15))
+                                            .font(.subheadline)
                                             .foregroundStyle(accessibleGroups.contains(group)
                                                              ? Color.green : Color.orange)
-                                            .frame(width: 18, height: 18)
+                                            .frame(width: diagnosticIconSize, height: diagnosticIconSize)
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(group)
                                                 .font(.caption.monospaced())
