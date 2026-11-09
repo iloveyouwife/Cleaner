@@ -819,10 +819,13 @@ struct ContentView: View {
                                     enabled: Bool = true,
                                     action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 Image(systemName: icon)
-                    .font(.subheadline)
-                    .frame(width: 18, height: 18, alignment: .center)
+                    // SF Symbols reach closer to their nominal point size than
+                    // Chinese text glyphs do. A 13pt symbol matches the
+                    // *visible* height of the adjacent 15pt label.
+                    .font(.footnote)
+                    .frame(width: 16, height: 16, alignment: .center)
                     .opacity(symbolVisible ? 1 : 0)
                     .accessibilityHidden(true)
                 Text(title)
