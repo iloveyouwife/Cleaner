@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var model = WorseCleanerModel()
     @State private var searchText = ""
+    @State private var searchExpanded = false
     @FocusState private var searchFocused: Bool
     @State private var largestFirst = true
     @State private var selectedIDs = Set<String>()
@@ -86,39 +87,11 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    if !searchFocused && searchText.isEmpty {
-                        Spacer(minLength: 0)
-                    }
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    TextField("搜索", text: $searchText)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($searchFocused)
-                        .submitLabel(.search)
-                        .onSubmit { searchFocused = false }
-                        .frame(maxWidth: searchFocused || !searchText.isEmpty ? .infinity : 56)
-                    if !searchText.isEmpty {
-                        Button {
-                            searchText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                        }
-                        .accessibilityLabel("清除搜索")
-                    }
-                    if !searchFocused && searchText.isEmpty {
-                        Spacer(minLength: 0)
-                    }
-                }
+                searchBar
                 .padding(.horizontal, 16)
-                .frame(height: 46)
-                .background(Color(uiColor: .systemGray6), in: Capsule())
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-                .padding(.bottom, 12)
-                .background(Color(uiColor: .systemBackground))
+                .padding(.top, 12)
+                .padding(.bottom, 6)
+                .background(Color(uiColor: .systemGroupedBackground))
 
                 List {
                     summarySection
@@ -193,6 +166,60 @@ struct ContentView: View {
                 model.refreshSigning()
             }
             .task { model.loadApps() }
+        }
+    }
+
+    // The idle search prompt is its own centered control. TextField's intrinsic
+    // width and caret padding cannot push this icon/text pair off-center.
+    private var searchBar: some View {
+        Group {
+            if searchExpanded || !searchText.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("搜索", text: $searchText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($searchFocused)
+                        .submitLabel(.search)
+                        .onAppear { searchFocused = true }
+                        .onSubmit {
+                            searchFocused = false
+                            if searchText.isEmpty { searchExpanded = false }
+                        }
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                            searchFocused = true
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityLabel("清除搜索")
+                    }
+                }
+                .padding(.horizontal, 18)
+            } else {
+                Button {
+                    searchExpanded = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                        Text("搜索")
+                    }
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("搜索")
+            }
+        }
+        .font(.system(size: 17))
+        .frame(height: 46)
+        .background(Color(uiColor: .systemGray5), in: Capsule())
+        .onChange(of: searchFocused) { _, focused in
+            if !focused && searchText.isEmpty { searchExpanded = false }
         }
     }
 
