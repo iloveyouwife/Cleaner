@@ -186,10 +186,24 @@ final class WorseCleanerModel: ObservableObject {
             var results: [String: LimitedCleanerUsage] = [:]
             var identities: [String: WCTarget] = [:]
             var failures = 0
+            var identityCounts: [WCIdentitySource: Int] = [:]
+            var namedCount = 0
+            var readableButUnnamed = 0
+            var metadataErrors: [Int32: Int] = [:]
             for (index, target) in targets.enumerated() {
                 if let inspection = try? WCFileAccess.inspect(target, groupID: selectedGroup) {
                     results[target.id] = inspection.usage
                     identities[target.id] = inspection.target
+                    identityCounts[inspection.identitySource, default: 0] += 1
+                    if inspection.target.name != inspection.target.bundleID &&
+                        !inspection.target.name.hasPrefix("App 容器 ") {
+                        namedCount += 1
+                    } else if inspection.identitySource != .unresolved {
+                        readableButUnnamed += 1
+                    }
+                    if let code = inspection.metadataErrno {
+                        metadataErrors[code, default: 0] += 1
+                    }
                 } else {
                     failures += 1
                 }
@@ -199,7 +213,12 @@ final class WorseCleanerModel: ObservableObject {
                 self.usage.merge(results) { _, newer in newer }
                 self.apps = self.apps.map { identities[$0.id] ?? $0 }
                 self.busy = false
-                self.status = "完成：扫描 \(targets.count) 个已发现容器，成功 \(results.count)，访问失败 \(failures)。失败容器未计为 0 KB。"
+                let stats = "名称识别：\(namedCount) 个真实名称、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个待识别。"
+                let methods = "来源：元数据 \(identityCounts[.metadata, default: 0])，保存状态 \(identityCounts[.savedState, default: 0])，偏好文件 \(identityCounts[.preferences, default: 0])。"
+                let access = metadataErrors.sorted { $0.value > $1.value }.prefix(2)
+                    .map { "errno \($0.key): \($0.value)" }.joined(separator: "，")
+                self.status = "完成：扫描 \(targets.count) 个容器，成功 \(results.count)，访问失败 \(failures)。" +
+                    stats + methods + (access.isEmpty ? "" : " 元数据读取错误：\(access)。")
             }
         }
     }

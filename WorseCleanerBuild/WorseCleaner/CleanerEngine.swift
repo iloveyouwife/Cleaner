@@ -21,6 +21,15 @@ struct WCTarget: Identifiable, Hashable {
 struct WCInspection {
     let target: WCTarget
     let usage: LimitedCleanerUsage
+    let identitySource: WCIdentitySource
+    let metadataErrno: Int32?
+}
+
+enum WCIdentitySource: String {
+    case metadata = "元数据"
+    case savedState = "保存状态"
+    case preferences = "偏好文件"
+    case unresolved = "未识别"
 }
 
 enum WCFailure: LocalizedError {
@@ -158,53 +167,113 @@ enum WCFileAccess {
     static func inspect(_ target: WCTarget, groupID: String) throws -> WCInspection {
         try withLease(for: target, groupID: groupID) {
             try checkReadableDirectories(target)
-            let identified = inspectIdentity(target)
+            let identity = inspectIdentity(target)
             let usage = try LimitedCleanerService.scan(
                 containerURL: URL(fileURLWithPath: target.path),
                 rootValidator: { isValidApplicationContainer($0.path) && $0.path == target.path }
             )
-            return WCInspection(target: identified, usage: usage)
+            return WCInspection(target: identity.0, usage: usage,
+                                identitySource: identity.1, metadataErrno: identity.2)
         }
     }
 
-    private static func inspectIdentity(_ target: WCTarget) -> WCTarget {
-        let metadataPath = target.path + "/.com.apple.mobile_container_manager.metadata.plist"
-        let fd = open(metadataPath, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-        guard fd >= 0 else { return target }
-        defer { close(fd) }
-        var st = stat()
-        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else {
-            return target
-        }
+    private static func isBundleIdentifier(_ value: String) -> Bool {
+        value.contains(".") && !value.contains("..") &&
+            value.range(of: "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)+$",
+                        options: .regularExpression) != nil &&
+            !value.hasPrefix("group.") && !value.hasPrefix("systemgroup.")
+    }
 
-        // MCM metadata is small; cap parsing to avoid unusual files.
+    private static func resolvedTarget(
+        _ target: WCTarget, bundleID: String, hint: String = ""
+    ) -> WCTarget? {
+        guard isBundleIdentifier(bundleID) else { return nil }
+        let localized = WCLookupApplicationName(bundleID)
+        let name = (localized?.isEmpty == false ? localized : nil)
+            ?? (hint.isEmpty ? bundleID : hint)
+        return try? WCTarget(bundleID: bundleID, name: name, path: target.path)
+    }
+
+    private static func metadataPlist(_ target: WCTarget) -> (plist: [String: Any]?, code: Int32?) {
+        let filename = ".com.apple.mobile_container_manager.metadata.plist"
+        // Try both a fully qualified path and a descriptor-relative lookup.
+        // iOS can impose different sandbox checks on a hidden root entry.
+        var file = open(target.path + "/" + filename, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        var errorCode: Int32? = file < 0 ? errno : nil
+        if file < 0 {
+            let root = open(target.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            if root >= 0 {
+                file = filename.withCString { openat(root, $0, O_RDONLY | O_NOFOLLOW | O_CLOEXEC) }
+                if file < 0 { errorCode = errno }
+                close(root)
+            }
+        }
+        guard file >= 0 else { return (nil, errorCode) }
+        defer { close(file) }
+        var statInfo = stat()
+        guard fstat(file, &statInfo) == 0, (statInfo.st_mode & S_IFMT) == S_IFREG,
+              statInfo.st_size <= 131_072 else { return (nil, nil) }
+
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while data.count < 131_072 {
-            let count = read(fd, &buffer, min(buffer.count, 131_072 - data.count))
-            if count <= 0 { break }
-            data.append(contentsOf: buffer.prefix(count))
+            let size = read(file, &buffer, min(buffer.count, 131_072 - data.count))
+            if size <= 0 { break }
+            data.append(contentsOf: buffer.prefix(size))
         }
-        guard let plist = try? PropertyListSerialization.propertyList(
+        let plist = try? PropertyListSerialization.propertyList(
             from: data, options: [], format: nil
-        ) as? [String: Any] else {
-            return target
+        ) as? [String: Any]
+        return (plist, nil)
+    }
+
+    private static func inspectIdentity(_ target: WCTarget) -> (WCTarget, WCIdentitySource, Int32?) {
+        // 3105's first route: MCMMetadataIdentifier and MCMMetadataInfo.
+        let metadata = metadataPlist(target)
+        if let plist = metadata.plist {
+            let identifier = (plist["MCMMetadataIdentifier"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let info = plist["MCMMetadataInfo"] as? [String: Any] ?? [:]
+            let hint = (info["CFBundleDisplayName"] as? String)
+                ?? (info["CFBundleName"] as? String) ?? ""
+            if let resolved = resolvedTarget(target, bundleID: identifier, hint: hint) {
+                return (resolved, .metadata, metadata.code)
+            }
         }
-        let identifier = (plist["MCMMetadataIdentifier"] as? String ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !identifier.isEmpty,
-              identifier.range(of: "^[A-Za-z0-9._-]{3,255}$", options: .regularExpression) != nil else {
-            return target
+
+        // 3105's second route: a saved-state name contains the hosting Bundle ID.
+        let savedRoot = target.path + "/Library/Saved Application State"
+        let savedEntries = (try? FileManager.default.contentsOfDirectory(atPath: savedRoot)) ?? []
+        let savedCandidates = Array(Set(savedEntries.compactMap { name -> String? in
+            guard name.hasSuffix(".savedState") else { return nil }
+            let identifier = String(name.dropLast(".savedState".count))
+            return isBundleIdentifier(identifier) ? identifier : nil
+        })).sorted()
+        for identifier in savedCandidates {
+            if WCLookupApplicationName(identifier) != nil || savedCandidates.count == 1,
+               let resolved = resolvedTarget(target, bundleID: identifier) {
+                return (resolved, .savedState, metadata.code)
+            }
         }
-        let info = plist["MCMMetadataInfo"] as? [String: Any] ?? [:]
-        let metadataName = (info["CFBundleDisplayName"] as? String)
-            ?? (info["CFBundleName"] as? String)
-            ?? ""
-        let localizedName = WCLookupApplicationName(identifier)
-        let displayName = (localizedName?.isEmpty == false ? localizedName : nil)
-            ?? (metadataName.isEmpty ? identifier : metadataName)
-        return (try? WCTarget(bundleID: identifier, name: displayName, path: target.path))
-            ?? target
+
+        // Third route from 3105: Preferences/*.plist. Only accept a candidate
+        // when LaunchServices confirms its name, or it is the sole non-Apple
+        // preference identifier. Never infer an identity from generic SDK files.
+        let prefsRoot = target.path + "/Library/Preferences"
+        let preferenceEntries = (try? FileManager.default.contentsOfDirectory(atPath: prefsRoot)) ?? []
+        let preferenceCandidates = Array(Set(preferenceEntries.compactMap { name -> String? in
+            guard name.hasSuffix(".plist") else { return nil }
+            let identifier = String(name.dropLast(".plist".count))
+            guard isBundleIdentifier(identifier), !identifier.hasPrefix("com.apple.") else { return nil }
+            return identifier
+        })).sorted()
+        for identifier in preferenceCandidates {
+            if WCLookupApplicationName(identifier) != nil || preferenceCandidates.count == 1,
+               let resolved = resolvedTarget(target, bundleID: identifier) {
+                return (resolved, .preferences, metadata.code)
+            }
+        }
+        return (target, .unresolved, metadata.code)
     }
 
     static func clean(_ target: WCTarget, groupID: String) throws -> LimitedCleanerResult {

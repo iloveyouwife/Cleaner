@@ -6,6 +6,7 @@ on:
       - worse-query-cleaner
       - worse-query-cleaner-fix
       - worse-query-cleaner-v3
+      - worse-query-cleaner-v4
   workflow_dispatch:
 
 permissions:
