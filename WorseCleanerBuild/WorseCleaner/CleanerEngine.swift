@@ -164,10 +164,12 @@ enum WCFileAccess {
         try inspect(target, groupID: groupID).usage
     }
 
-    static func inspect(_ target: WCTarget, groupID: String) throws -> WCInspection {
+    static func inspect(
+        _ target: WCTarget, groupID: String, knownNames: [String: String] = [:]
+    ) throws -> WCInspection {
         try withLease(for: target, groupID: groupID) {
             try checkReadableDirectories(target)
-            let identity = inspectIdentity(target)
+            let identity = inspectIdentity(target, knownNames: knownNames)
             let usage = try LimitedCleanerService.scan(
                 containerURL: URL(fileURLWithPath: target.path),
                 rootValidator: { isValidApplicationContainer($0.path) && $0.path == target.path }
@@ -185,11 +187,13 @@ enum WCFileAccess {
     }
 
     private static func resolvedTarget(
-        _ target: WCTarget, bundleID: String, hint: String = ""
+        _ target: WCTarget, bundleID: String, hint: String = "",
+        knownNames: [String: String]
     ) -> WCTarget? {
         guard isBundleIdentifier(bundleID) else { return nil }
         let localized = WCLookupApplicationName(bundleID)
-        let name = (localized?.isEmpty == false ? localized : nil)
+        let name = WCAppNames.displayName(for: bundleID, names: knownNames)
+            ?? (localized?.isEmpty == false ? localized : nil)
             ?? (hint.isEmpty ? bundleID : hint)
         return try? WCTarget(bundleID: bundleID, name: name, path: target.path)
     }
@@ -227,7 +231,9 @@ enum WCFileAccess {
         return (plist, nil)
     }
 
-    private static func inspectIdentity(_ target: WCTarget) -> (WCTarget, WCIdentitySource, Int32?) {
+    private static func inspectIdentity(
+        _ target: WCTarget, knownNames: [String: String]
+    ) -> (WCTarget, WCIdentitySource, Int32?) {
         // 3105's first route: MCMMetadataIdentifier and MCMMetadataInfo.
         let metadata = metadataPlist(target)
         if let plist = metadata.plist {
@@ -236,7 +242,9 @@ enum WCFileAccess {
             let info = plist["MCMMetadataInfo"] as? [String: Any] ?? [:]
             let hint = (info["CFBundleDisplayName"] as? String)
                 ?? (info["CFBundleName"] as? String) ?? ""
-            if let resolved = resolvedTarget(target, bundleID: identifier, hint: hint) {
+            if let resolved = resolvedTarget(
+                target, bundleID: identifier, hint: hint, knownNames: knownNames
+            ) {
                 return (resolved, .metadata, metadata.code)
             }
         }
@@ -251,7 +259,8 @@ enum WCFileAccess {
         })).sorted()
         for identifier in savedCandidates {
             if WCLookupApplicationName(identifier) != nil || savedCandidates.count == 1,
-               let resolved = resolvedTarget(target, bundleID: identifier) {
+               let resolved = resolvedTarget(target, bundleID: identifier,
+                                             knownNames: knownNames) {
                 return (resolved, .savedState, metadata.code)
             }
         }
@@ -269,7 +278,8 @@ enum WCFileAccess {
         })).sorted()
         for identifier in preferenceCandidates {
             if WCLookupApplicationName(identifier) != nil || preferenceCandidates.count == 1,
-               let resolved = resolvedTarget(target, bundleID: identifier) {
+               let resolved = resolvedTarget(target, bundleID: identifier,
+                                             knownNames: knownNames) {
                 return (resolved, .preferences, metadata.code)
             }
         }

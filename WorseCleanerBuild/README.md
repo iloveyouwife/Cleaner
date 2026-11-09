@@ -48,6 +48,7 @@ GitHub Actions 生成的是**未签名编译产物**，无法代替你的签名�
 - v3 会在获得容器读取权限后解析容器根目录里的 MCM 元数据，并尝试通过 LaunchServices 找到本地化的 App 名称。系统拒绝名称查询时会显示 Bundle ID 或容器 UUID，而不伪造名称。
 - v4 补全 3105 的另一条容器身份识别路径：若隐藏元数据读取失败，会在同一临时授权期间检查 `Library/Saved Application State/*.savedState`、`Library/Preferences/*.plist`，优先使用 LaunchServices 校验候选 Bundle ID，再通过加载 CoreServices、读取 App `Info.plist` 或本地化名称进行展示。扫描结束会报告识别来源、真实显示名称数量及元数据读取 errno，方便判断 iOS 版本对访问的实际限制。
 - v4 App 桌面显示名称为 `Cleaner`，App 图标使用用户提供的蓝底白色扫帚图片；缓存 0 字节时显示 `0 KB` 而不是 `Zero KB`。
+- v5 针对 iOS 27 第三方 App 的 LaunchServices 名称不可见问题，先在临时只读授权范围内枚举 `/var/containers/Bundle/Application/<UUID>/*.app/Info.plist` 构建当前安装 App 的名称表，再为常见 App 的已知确切 Bundle ID（如微信、淘宝、抖音、京东）提供离线名称回退。未知 Bundle ID 仍如实显示包名，不冒充已确认 App。
 - 首次载入自动执行慢速 inode 深度发现（可能耗时数分钟）；对之前已经确认过的**同一个专用 App Group**，会自动继续扫描缓存。首次新组需要用户确认后手动触发扫描。
 - 可选择一个或多个 App 后「排除选中」，排除项会从首页列表和批量扫描/清理里跳过；可在右上角「管理已排除 App」恢复。排除信息保存在本地 App 设置中，按容器路径识别，App 重新安装导致 UUID 改变时需重新排除。
 - 「访问诊断与手动添加」隐藏在右上角「高级设置」，仅需首次绑定新的专用 App Group 时访问。
@@ -66,4 +67,4 @@ xcodegen generate
 xcodebuild -project WorseCleaner.xcodeproj -scheme WorseCleaner -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix`、`worse-query-cleaner-v3`、`worse-query-cleaner-v4` 分支提交时构建未签名 IPA。
+GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix`、`worse-query-cleaner-v3`、`worse-query-cleaner-v4`、`worse-query-cleaner-v5` 分支提交时构建未签名 IPA。

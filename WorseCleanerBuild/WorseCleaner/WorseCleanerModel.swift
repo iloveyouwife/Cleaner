@@ -128,7 +128,10 @@ final class WorseCleanerModel: ObservableObject {
         status = "正在扫描 \(target.name)……"
         let selectedGroup = groupID
         queue.async {
-            let result = Result { try WCFileAccess.inspect(target, groupID: selectedGroup) }
+            let names = WCAppNames.catalog(groupID: selectedGroup)
+            let result = Result {
+                try WCFileAccess.inspect(target, groupID: selectedGroup, knownNames: names)
+            }
             DispatchQueue.main.async {
                 self.busy = false
                 switch result {
@@ -183,6 +186,7 @@ final class WorseCleanerModel: ObservableObject {
         scannedAppCount = 0
         status = "正在检查已发现 App 的缓存权限……"
         queue.async {
+            let names = WCAppNames.catalog(groupID: selectedGroup)
             var results: [String: LimitedCleanerUsage] = [:]
             var identities: [String: WCTarget] = [:]
             var failures = 0
@@ -191,7 +195,9 @@ final class WorseCleanerModel: ObservableObject {
             var readableButUnnamed = 0
             var metadataErrors: [Int32: Int] = [:]
             for (index, target) in targets.enumerated() {
-                if let inspection = try? WCFileAccess.inspect(target, groupID: selectedGroup) {
+                if let inspection = try? WCFileAccess.inspect(
+                    target, groupID: selectedGroup, knownNames: names
+                ) {
                     results[target.id] = inspection.usage
                     identities[target.id] = inspection.target
                     identityCounts[inspection.identitySource, default: 0] += 1
