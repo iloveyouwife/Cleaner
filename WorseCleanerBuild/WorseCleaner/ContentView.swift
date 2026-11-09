@@ -14,6 +14,8 @@ struct ContentView: View {
     @State private var showingExcluded = false
     @State private var confirmingOnlineNames = false
     @State private var showingSystemServices = false
+    @State private var showingBundleIDOnly = false
+    @State private var showingUnidentifiedContainers = false
 
     private var filteredApps: [WCTarget] {
         let matching = model.apps.filter {
@@ -21,7 +23,9 @@ struct ContentView: View {
             (showingSystemServices || !isInternalSystemService($0.bundleID)) && (
                 searchText.isEmpty ||
                 $0.name.localizedCaseInsensitiveContains(searchText) ||
-                $0.bundleID.localizedCaseInsensitiveContains(searchText)
+                $0.bundleID.localizedCaseInsensitiveContains(searchText) ||
+                URL(fileURLWithPath: $0.path).lastPathComponent
+                    .localizedCaseInsensitiveContains(searchText)
             )
         }
         return matching.sorted { lhs, rhs in
@@ -30,6 +34,34 @@ struct ContentView: View {
             if a != b { return largestFirst ? a > b : a < b }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
+    }
+
+    // A data-container UUID is not an App identifier. Keep these entries
+    // separate from apps with a verifiable Bundle ID or display name.
+    private var namedApps: [WCTarget] {
+        filteredApps.filter {
+            !isUnknownContainer($0) && $0.name != $0.bundleID
+        }
+    }
+
+    private var bundleIDOnlyApps: [WCTarget] {
+        filteredApps.filter {
+            !isUnknownContainer($0) && $0.name == $0.bundleID
+        }
+    }
+
+    private var unidentifiedContainers: [WCTarget] {
+        filteredApps.filter(isUnknownContainer)
+    }
+
+    private var displayedApps: [WCTarget] {
+        namedApps + ((showingBundleIDOnly || !searchText.isEmpty) ? bundleIDOnlyApps : [])
+            + ((showingUnidentifiedContainers || !searchText.isEmpty) ? unidentifiedContainers : [])
+    }
+
+    private func isUnknownContainer(_ app: WCTarget) -> Bool {
+        app.bundleID.hasPrefix("容器 ") || app.bundleID == "manual" ||
+        app.name.hasPrefix("App 容器 ")
     }
 
     private var selectedSize: Int64 {
@@ -71,6 +103,8 @@ struct ContentView: View {
                 List {
                     summarySection
                     applicationSection
+                    bundleIDOnlySection
+                    unidentifiedContainerSection
                     if !model.appGroupReady || !model.groupConfirmed {
                         signingWarning
                     }
@@ -143,30 +177,58 @@ struct ContentView: View {
 
     private var summarySection: some View {
         Section {
-            LabeledContent("可清理缓存") {
-                Text(sizeText(availableSize)).monospacedDigit()
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("已扫描缓存")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(sizeText(availableSize))
+                        .font(.system(.title2, design: .rounded, weight: .bold))
+                        .monospacedDigit()
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("已选择 \(selectedIDs.count) 项")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(sizeText(selectedSize))
+                        .font(.headline.monospacedDigit())
+                }
             }
-            LabeledContent("已选中") {
-                Text("\(selectedIDs.count) 个 App · \(sizeText(selectedSize))")
-                    .monospacedDigit()
-            }
+            .padding(.vertical, 8)
             Button {
                 model.scanAll()
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: 12) {
                     if model.busy { ProgressView() }
-                    else { Image(systemName: "magnifyingglass") }
-                    Text(model.busy ? "正在扫描 \(model.scannedAppCount) 项" : "扫描已发现的 App")
-                        .fontWeight(.semibold)
+                    else { Image(systemName: "arrow.triangle.2.circlepath") }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(model.busy ? "扫描中 · \(model.scannedAppCount) / \(model.apps.count)" : "重新扫描缓存")
+                            .font(.subheadline.weight(.semibold))
+                        Text("\(model.apps.count) 个数据容器 · 仅检查 Caches / tmp")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    if !model.busy {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
-                .frame(maxWidth: .infinity, minHeight: 36)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Color.accentColor.opacity(0.07),
+                            in: RoundedRectangle(cornerRadius: 12))
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .disabled(model.busy || !model.appGroupReady || !model.groupConfirmed)
 
             Button {
                 confirmingClean = true
             } label: {
-                Label("清理选中 · \(sizeText(selectedSize))", systemImage: "trash")
+                Label("清理所选 \(selectedIDs.count) 项 · \(sizeText(selectedSize))", systemImage: "trash")
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
@@ -176,86 +238,131 @@ struct ContentView: View {
         } header: {
             Label("有限清理模式", systemImage: "checkmark.shield")
         } footer: {
-            Text("仅操作所选 App 的 Library/Caches 与 tmp；不删除 Documents、数据库或 App 容器。")
+            Text("扫描总量包含尚未识别的软件数据容器；只清理手动选中的 Caches 与 tmp，不删除整个容器或 Documents。")
         }
     }
 
     private var applicationSection: some View {
         Section {
-            if filteredApps.isEmpty {
+            if namedApps.isEmpty {
                 VStack(spacing: 10) {
-                    Image(systemName: "externaldrive.badge.questionmark")
-                        .font(.system(size: 36, weight: .light))
-                        .foregroundStyle(.secondary)
-                    Text("尚未发现可访问的 App")
-                        .font(.headline)
-                    Text("正在自动发现容器，或当前搜索条件下没有结果。可从右上角进入高级设置。")
-                        .font(.subheadline)
+                    Text("目前没有已识别名称的 App")
+                        .font(.subheadline.weight(.medium))
+                    Text("仅识别包名或容器编号的项目位于下方的独立分组。")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
+                .padding(.vertical, 12)
             } else {
-                ForEach(filteredApps) { app in
-                    Button {
-                        if selectedIDs.contains(app.id) { selectedIDs.remove(app.id) }
-                        else { selectedIDs.insert(app.id) }
-                    } label: {
-                        HStack(spacing: 10) {
-                            if let icon = model.appIcons[app.bundleID] {
-                                Image(uiImage: icon)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 36, height: 36)
-                                    .clipShape(RoundedRectangle(cornerRadius: 9))
-                            } else {
-                                Image(systemName: "app.fill")
-                                    .font(.system(size: 24))
-                                    .foregroundStyle(.blue)
-                                    .frame(width: 36, height: 36)
-                                    .background(.blue.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(app.name).font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-                                Text(app.bundleID)
-                                    .font(.caption2.monospaced())
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: 8)
-                            if let usage = model.usage[app.id] {
-                                Text(sizeText(usage.totalBytes))
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text("未扫描")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            Image(systemName: selectedIDs.contains(app.id)
-                                  ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selectedIDs.contains(app.id) ? Color.blue : Color.secondary)
-                        }
-                        .padding(.vertical, 3)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(model.busy)
+                ForEach(namedApps) { app in
+                    appRow(app)
                 }
             }
         } header: {
             HStack {
-                Text("已发现 App（\(filteredApps.count)）")
+                Text("已识别名称（\(namedApps.count)）")
                 Spacer()
                 if model.busy { ProgressView().controlSize(.mini) }
             }
             .textCase(nil)
         } footer: {
-            Text("优先显示本机安装的 App 名称和图标；iOS 拒绝提供元数据时仍可能显示 Bundle ID。右上角可自愿联网补全名称。已排除 \(model.excludedPaths.count) 个 App。")
+            Text("显示已获得名称的项目及 Bundle ID。名称可能来自已保存的本地识别表；已排除 \(model.excludedPaths.count) 项。")
         }
+    }
+
+    private var bundleIDOnlySection: some View {
+        Section {
+            if showingBundleIDOnly || !searchText.isEmpty {
+                ForEach(bundleIDOnlyApps) { app in
+                    appRow(app)
+                }
+            }
+        } header: {
+            Button {
+                showingBundleIDOnly.toggle()
+            } label: {
+                HStack {
+                    Text("仅识别 Bundle ID（\(bundleIDOnlyApps.count)）")
+                    Spacer()
+                    Image(systemName: showingBundleIDOnly ? "chevron.up" : "chevron.down")
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .textCase(nil)
+        } footer: {
+            Text("已找到软件包标识，但当前系统没有提供显示名称；可以从右上角自愿联网尝试补全。")
+        }
+    }
+
+    private var unidentifiedContainerSection: some View {
+        Section {
+            if showingUnidentifiedContainers || !searchText.isEmpty {
+                ForEach(unidentifiedContainers) { app in
+                    appRow(app, unidentified: true)
+                }
+            }
+        } header: {
+            Button {
+                showingUnidentifiedContainers.toggle()
+            } label: {
+                HStack {
+                    Text("未识别数据容器（\(unidentifiedContainers.count)）")
+                    Spacer()
+                    Image(systemName: showingUnidentifiedContainers ? "chevron.up" : "chevron.down")
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .textCase(nil)
+        } footer: {
+            Text("这里的字符来自数据目录 UUID，不是软件名或 Bundle ID。无法确认属于哪个 App 时默认折叠，请不要凭编号清理重要数据。")
+        }
+    }
+
+    private func appRow(_ app: WCTarget, unidentified: Bool = false) -> some View {
+        Button {
+            if selectedIDs.contains(app.id) { selectedIDs.remove(app.id) }
+            else { selectedIDs.insert(app.id) }
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(unidentified ? "未知 App 数据容器" : app.name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(unidentified
+                         ? "UUID · \(URL(fileURLWithPath: app.path).lastPathComponent)"
+                         : app.bundleID)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                if let usage = model.usage[app.id] {
+                    Text(sizeText(usage.totalBytes))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("未扫描")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                Image(systemName: selectedIDs.contains(app.id)
+                      ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selectedIDs.contains(app.id) ? Color.accentColor : Color.secondary)
+                    .font(.system(size: 21))
+            }
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.busy)
     }
 
     private var signingWarning: some View {
@@ -386,7 +493,7 @@ struct ContentView: View {
     private var selectionMenu: some View {
         Menu {
             Button("全选当前列表", systemImage: "checkmark.circle") {
-                selectedIDs.formUnion(filteredApps.map(\.id))
+                selectedIDs.formUnion(displayedApps.map(\.id))
             }
             Button("取消全选", systemImage: "circle") {
                 selectedIDs.removeAll()

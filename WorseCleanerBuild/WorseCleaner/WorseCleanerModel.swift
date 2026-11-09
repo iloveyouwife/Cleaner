@@ -1,20 +1,9 @@
 import SwiftUI
 
-private enum WCIconResolver {
-    static func icon(for bundleID: String, localIcons: [String: UIImage]) -> UIImage? {
-        if let icon = localIcons[bundleID] { return icon }
-        guard !bundleID.isEmpty, let data = WCLookupApplicationIconData(bundleID) else {
-            return nil
-        }
-        return UIImage(data: data as Data)
-    }
-}
-
 @MainActor
 final class WorseCleanerModel: ObservableObject {
     @Published var apps: [WCTarget] = []
     @Published var usage: [String: LimitedCleanerUsage] = [:]
-    @Published var appIcons: [String: UIImage] = [:]
     @Published var busy = false
     @Published var status = "尚未扫描任何 App。"
     @Published var appGroupReady = false
@@ -149,16 +138,12 @@ final class WorseCleanerModel: ObservableObject {
             let result = Result {
                 try WCFileAccess.inspect(target, groupID: selectedGroup, knownNames: catalog.names)
             }
-            let icon = (try? result.get()).flatMap {
-                WCIconResolver.icon(for: $0.target.bundleID, localIcons: catalog.icons)
-            }
             DispatchQueue.main.async {
                 self.busy = false
                 self.iconDiagnostics = catalog.diagnostics
                 switch result {
                 case .success(let inspection):
                     self.usage[target.id] = inspection.usage
-                    if let icon { self.appIcons[inspection.target.bundleID] = icon }
                     if let index = self.apps.firstIndex(where: { $0.path == target.path }) {
                         self.apps[index] = inspection.target
                     }
@@ -212,7 +197,6 @@ final class WorseCleanerModel: ObservableObject {
             let catalog = WCAppNames.catalog(groupID: selectedGroup, discoveredBundleRoots: bundleRoots)
             var results: [String: LimitedCleanerUsage] = [:]
             var identities: [String: WCTarget] = [:]
-            var icons = catalog.icons
             var failures = 0
             var identityCounts: [WCIdentitySource: Int] = [:]
             var namedCount = 0
@@ -224,12 +208,6 @@ final class WorseCleanerModel: ObservableObject {
                 ) {
                     results[target.id] = inspection.usage
                     identities[target.id] = inspection.target
-                    if icons[inspection.target.bundleID] == nil,
-                       let icon = WCIconResolver.icon(
-                        for: inspection.target.bundleID, localIcons: catalog.icons
-                       ) {
-                        icons[inspection.target.bundleID] = icon
-                    }
                     identityCounts[inspection.identitySource, default: 0] += 1
                     if inspection.target.name != inspection.target.bundleID &&
                         !inspection.target.name.hasPrefix("App 容器 ") {
@@ -247,11 +225,10 @@ final class WorseCleanerModel: ObservableObject {
             }
             DispatchQueue.main.async {
                 self.usage.merge(results) { _, newer in newer }
-                self.appIcons.merge(icons) { _, new in new }
-                self.iconDiagnostics = catalog.diagnostics + " 列表图标合计 \(icons.count)。"
+                self.iconDiagnostics = catalog.diagnostics
                 self.apps = self.apps.map { identities[$0.id] ?? $0 }
                 self.busy = false
-                let stats = "名称识别：\(namedCount) 个真实名称、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个待识别。"
+                let stats = "名称识别：\(namedCount) 个可显示名称（含离线名称映射）、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个未识别容器。"
                 let methods = "来源：元数据 \(identityCounts[.metadata, default: 0])，保存状态 \(identityCounts[.savedState, default: 0])，偏好文件 \(identityCounts[.preferences, default: 0])。"
                 let access = metadataErrors.sorted { $0.value > $1.value }.prefix(2)
                     .map { "errno \($0.key): \($0.value)" }.joined(separator: "，")

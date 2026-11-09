@@ -155,9 +155,9 @@ enum WCAppNames {
                 if let name = installedName(at: appPath, info: info) {
                     names[bundleID] = name
                 }
-                if let icon = installedIcon(at: appPath, info: info) {
-                    icons[bundleID] = icon
-                }
+                // The cache-cleaner list intentionally does not show app icons:
+                // iOS 27 generally denies icon metadata and placeholder tiles
+                // were misleading. Keep the name lookup, skip image decoding.
             }
         }
 
@@ -196,7 +196,7 @@ enum WCAppNames {
             if readableApps > before { readableBundleRoots += 1 }
             worse_query_release(scopedLease)
         }
-        let info = "安装包根目录 token=\(rootLease)，pathleak 发现 \(discoveredBundleRoots.count) 个安装目录，单目录授权 \(perRootGrants)，读到 \(readableApps) 份 Info.plist、\(icons.count) 个本地图标。"
+        let info = "安装包根目录 token=\(rootLease)，pathleak 发现 \(discoveredBundleRoots.count) 个安装目录，单目录授权 \(perRootGrants)，读到 \(readableApps) 份 Info.plist。列表已关闭图标读取。"
         return WCAppCatalog(names: names, icons: icons, diagnostics: info)
     }
 }
