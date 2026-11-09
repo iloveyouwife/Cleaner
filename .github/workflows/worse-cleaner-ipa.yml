@@ -21,6 +21,7 @@ on:
       - worse-query-cleaner-v16
       - worse-query-cleaner-v17
       - worse-query-cleaner-v18
+      - worse-query-cleaner-v19
   workflow_dispatch:
 
 permissions:
@@ -102,6 +103,10 @@ jobs:
           xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureSelectionPopup
           sleep 3
           xcrun simctl io "$simulator_id" screenshot ui-screenshots/selection-popup.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureSelectionPopupSelected
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/selection-popup-selected.png
           xcrun simctl terminate "$simulator_id" com.example.worsecleaner
           xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureMorePopup
           sleep 3

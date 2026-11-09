@@ -204,6 +204,13 @@ struct ContentView: View {
                 let arguments = ProcessInfo.processInfo.arguments
                 if arguments.contains("-captureAdvancedSettings") {
                     showingAdvancedSettings = true
+                } else if arguments.contains("-captureSelectionPopupSelected") {
+                    // A fake selection exercises the conditional menu rows;
+                    // only the simulator preview uses this placeholder ID.
+                    selectedIDs.insert("simulator-preview-selection")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        showingSelectionPopup = true
+                    }
                 } else if arguments.contains("-captureSelectionPopup") {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                         showingSelectionPopup = true
@@ -767,7 +774,7 @@ struct ContentView: View {
                         selectedIDs.removeAll()
                         showingSelectionPopup = false
                     }
-                    compactPopupAction("排除选中的 \(selectedIDs.count) 个 App", icon: "eye.slash") {
+                    compactPopupAction("排除选中的 \(selectedIDs.count) 个 App", icon: "minus.circle") {
                         let paths = Set(model.apps.filter { selectedIDs.contains($0.id) }.map(\.path))
                         model.exclude(paths)
                         selectedIDs.removeAll()
@@ -787,14 +794,13 @@ struct ContentView: View {
         }
     }
 
-    /// The native Menu reserves an OS-controlled icon column. Both compact
-    /// popovers use the same fixed symbol slot, typography, and eight-point
-    /// spacing so their visual proportions remain identical on iPhone.
+    /// The native Menu reserves an OS-controlled icon column. Keep the left
+    /// and right popovers on one compact set of optical layout metrics.
     private func compactPopup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             content()
         }
-        .padding(8)
+        .padding(6)
         .frame(width: 250)
         .presentationCompactAdaptation(.popover)
     }
@@ -805,16 +811,16 @@ struct ContentView: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 17, weight: .regular))
-                    .frame(width: 20, height: 20, alignment: .center)
+                    .font(.system(size: 15, weight: .regular))
+                    .frame(width: 18, height: 18, alignment: .center)
                     .accessibilityHidden(true)
                 Text(title)
-                    .font(.system(size: 17, weight: .regular))
+                    .font(.system(size: 15, weight: .regular))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .frame(height: 44)
+            .frame(height: 40)
             .padding(.horizontal, 10)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
