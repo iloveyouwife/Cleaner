@@ -22,6 +22,7 @@ on:
       - worse-query-cleaner-v17
       - worse-query-cleaner-v18
       - worse-query-cleaner-v19
+      - worse-query-cleaner-v20
   workflow_dispatch:
 
 permissions:
@@ -95,10 +96,18 @@ jobs:
           xcrun simctl boot "$simulator_id" || true
           xcrun simctl bootstatus "$simulator_id" -b
           xcrun simctl install "$simulator_id" DerivedDataSimulator/Build/Products/Release-iphonesimulator/WorseCleaner.app
+          mkdir -p ui-screenshots
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureToolbarHome
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/toolbar-home.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
           xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
           sleep 3
-          mkdir -p ui-screenshots
           xcrun simctl io "$simulator_id" screenshot ui-screenshots/advanced-settings.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureSortPopup
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/sort-popup.png
           xcrun simctl terminate "$simulator_id" com.example.worsecleaner
           xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureSelectionPopup
           sleep 3

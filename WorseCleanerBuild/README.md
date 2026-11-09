@@ -67,6 +67,7 @@ GitHub Actions 生成的是**未签名编译产物**，无法代替你的签名�
 - v17 彻底移除 App Group 安全提示前的警告图标和自定义图标容器；提示改用系统原生 Section footer 的左对齐纯文本样式，同时删除无用的 `warningFootnote` 辅助视图。安全提示内容、缓存清理和权限逻辑保持不变。
 - v18 左上「选择操作」和右上「更多选项」不再使用系统自动留出大图标列的 Menu，改为统一的紧凑 SwiftUI popover：17pt 图标、17pt 文本、20pt 居中图标槽、8pt 图文间距、44pt 行高；移除重复的旧 `menuItem` 布局。联网补全文案精简为「补全App名称」。增加两侧弹窗的模拟器截图检查，保留原有功能和安全限制。
 - v19 根据真机反馈，将左右两个弹窗的图标和文字一起缩小到 15pt，图标槽调整到 18pt，行高缩至 40pt；「排除选中的 App」从面积过大的 `eye.slash` 换为与「全选」「取消全选」同系列的 `minus.circle`，使视觉重心更一致。「管理已排除 App」保留语义清晰的列表图标。模拟器同时截图左侧已选项目状态以核对新增图标；权限和清理逻辑没有变化。
+- v20 中间排序从系统字号不受控的 Menu/Picker 改成与两侧共用的紧凑 popover，保留当前排序方向的勾选标记；三个菜单文字和图标统一使用系统 `.subheadline`（标准字号下 15pt，可随动态字体设置缩放），每个操作保证至少 44pt 可点击高度。工具栏四个 SF Symbols 改为各自等比缩放至同一个 20pt 光学边界，再置于 24pt 居中槽位，避免仅统一字体大小却出现图形实际尺寸不一致。CI 增加无遮罩工具栏和排序弹窗的模拟器截图。未修改扫描、识别和删除逻辑。
 - 首次载入自动执行慢速 inode 深度发现（可能耗时数分钟）；对之前已经确认过的**同一个专用 App Group**，会自动继续扫描缓存。首次新组需要用户确认后手动触发扫描。
 - 可选择一个或多个 App 后「排除选中」，排除项会从首页列表和批量扫描/清理里跳过；可在**左上角**「管理已排除 App」恢复。排除信息保存在本地 App 设置中，按容器路径识别，App 重新安装导致 UUID 改变时需重新排除。
 - 权限设置、手动添加与可展开的访问诊断位于右上角「高级设置」。
@@ -85,4 +86,4 @@ xcodegen generate
 xcodebuild -project WorseCleaner.xcodeproj -scheme WorseCleaner -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix` 及 `worse-query-cleaner-v3` 至 `worse-query-cleaner-v19` 分支提交时构建未签名 IPA。
+GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix` 及 `worse-query-cleaner-v3` 至 `worse-query-cleaner-v20` 分支提交时构建未签名 IPA。

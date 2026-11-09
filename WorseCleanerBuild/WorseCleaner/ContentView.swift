@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var showingExcluded = false
     @State private var confirmingOnlineNames = false
     @State private var showingSelectionPopup = false
+    @State private var showingSortPopup = false
     @State private var showingMorePopup = false
     @State private var showingBundleIDOnly = false
     @State private var showingUnidentifiedContainers = false
@@ -147,6 +148,7 @@ struct ContentView: View {
                     .accessibilityLabel("刷新 App 列表")
                     Button {
                         showingSelectionPopup = false
+                        showingSortPopup = false
                         showingMorePopup.toggle()
                     } label: {
                         toolbarIcon("ellipsis.circle")
@@ -204,6 +206,10 @@ struct ContentView: View {
                 let arguments = ProcessInfo.processInfo.arguments
                 if arguments.contains("-captureAdvancedSettings") {
                     showingAdvancedSettings = true
+                } else if arguments.contains("-captureSortPopup") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        showingSortPopup = true
+                    }
                 } else if arguments.contains("-captureSelectionPopupSelected") {
                     // A fake selection exercises the conditional menu rows;
                     // only the simulator preview uses this placeholder ID.
@@ -219,6 +225,8 @@ struct ContentView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                         showingMorePopup = true
                     }
+                } else if arguments.contains("-captureToolbarHome") {
+                    // No background discovery during a toolbar-only layout preview.
                 } else {
                     model.loadApps()
                 }
@@ -755,6 +763,7 @@ struct ContentView: View {
 
     private var selectionMenu: some View {
         Button {
+            showingSortPopup = false
             showingMorePopup = false
             showingSelectionPopup.toggle()
         } label: {
@@ -806,21 +815,23 @@ struct ContentView: View {
     }
 
     private func compactPopupAction(_ title: String, icon: String,
+                                    symbolVisible: Bool = true,
                                     enabled: Bool = true,
                                     action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 15, weight: .regular))
+                    .font(.subheadline)
                     .frame(width: 18, height: 18, alignment: .center)
+                    .opacity(symbolVisible ? 1 : 0)
                     .accessibilityHidden(true)
                 Text(title)
-                    .font(.system(size: 15, weight: .regular))
+                    .font(.subheadline)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .frame(height: 40)
+            .frame(minHeight: 44)
             .padding(.horizontal, 10)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
@@ -830,16 +841,30 @@ struct ContentView: View {
     }
 
     private var sortMenu: some View {
-        Menu {
-            Picker("排序", selection: $largestFirst) {
-                Text("缓存从大到小").tag(true)
-                Text("缓存从小到大").tag(false)
-            }
+        Button {
+            showingSelectionPopup = false
+            showingMorePopup = false
+            showingSortPopup.toggle()
         } label: {
             toolbarIcon("arrow.up.arrow.down")
         }
         .accessibilityLabel("排序")
         .disabled(model.busy)
+        .popover(isPresented: $showingSortPopup, attachmentAnchor: .rect(.bounds),
+                 arrowEdge: .top) {
+            compactPopup {
+                compactPopupAction("缓存从大到小", icon: "checkmark",
+                                   symbolVisible: largestFirst) {
+                    largestFirst = true
+                    showingSortPopup = false
+                }
+                compactPopupAction("缓存从小到大", icon: "checkmark",
+                                   symbolVisible: !largestFirst) {
+                    largestFirst = false
+                    showingSortPopup = false
+                }
+            }
+        }
     }
 
     private func sizeText(_ bytes: Int64) -> String {
@@ -847,10 +872,13 @@ struct ContentView: View {
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
-    /// One optical slot per toolbar symbol keeps the controls aligned.
+    /// Font point size alone does not equalize SF Symbols' visual bounds.
+    /// Scale each vector proportionally to the same 20pt optical bounding box.
     private func toolbarIcon(_ symbol: String) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 19, weight: .medium))
+            .resizable()
+            .scaledToFit()
+            .frame(width: 20, height: 20, alignment: .center)
             .frame(width: 24, height: 24, alignment: .center)
             .accessibilityHidden(true)
     }
