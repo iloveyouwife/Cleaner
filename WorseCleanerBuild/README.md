@@ -61,9 +61,10 @@ GitHub Actions 生成的是**未签名编译产物**，无法代替你的签名�
 - v12 权限说明：真机反馈 `.com.apple.mobile_container_manager.metadata.plist` 在 248 个容器上均返回 `EPERM (errno=1)`，即元数据文件读取被拒绝。可读取 `Library/Caches` 与 `tmp` **不等于**可读取该隐藏元数据文件；仅修改路径或重复 `openat` 不保证能解除沙盒限制。本版本保留元数据、Saved Application State、Preferences 与 MCM/LaunchServices 的多级识别路径；无法确认的 UUID 仍如实归类为「未识别数据容器」，绝不据此猜测所属 App。
 - v13 移除右上角重复的「管理已排除 App」入口，仍保留左上角的排除管理；移除普通使用无必要的「显示系统内部服务」切换，已知系统内部辅助服务始终从可选列表隐藏。导航栏按钮统一使用 19pt SF Symbol + 24pt 居中图标区域，页面常规操作统一使用 18pt + 22pt 图标区域，列表勾选区固定 24pt，折叠提示符固定 18pt，原生菜单图标统一使用 17pt + 22pt 布局。将菜单名称缩短为「联网补全 App 名称」，保留该功能，但只用于已经识别 Bundle ID、缺少名称的项目。
 - v13 联网功能实测：通过 Apple iTunes Lookup API 请求 `bundleId=com.wuziqi.SenPlayer&country=cn`，返回 `resultCount=1`、`bundleId=com.wuziqi.SenPlayer`、`trackName=SenPlayer - 全能视频播放器 网盘直连`。该 Bundle ID 不在内置固定名称表中，表明联网补全**确有作用**。但 App Store 下架、未上架、地区不匹配的应用可能查不到；只有 UUID 的 168 个未知容器没有 Bundle ID，无法通过这个接口推导所属 App。
+- v14 重新整理「高级设置」页：将权限状态、专用 App Group、深度发现、手动添加及访问诊断拆分为清晰分组；长日志默认折叠，签名声明的组与可访问状态仅在展开诊断后显示；安全提示保留但不再占据主要界面。首页的三种 App 分组标题全部使用同一字号、字重及颜色；折叠分组的额外说明只在展开时出现；运行结果默认折叠以减少长文占屏。此版本是 UI 优化，没有改变权限、清理目标或授权确认逻辑。
 - 首次载入自动执行慢速 inode 深度发现（可能耗时数分钟）；对之前已经确认过的**同一个专用 App Group**，会自动继续扫描缓存。首次新组需要用户确认后手动触发扫描。
-- 可选择一个或多个 App 后「排除选中」，排除项会从首页列表和批量扫描/清理里跳过；可在右上角「管理已排除 App」恢复。排除信息保存在本地 App 设置中，按容器路径识别，App 重新安装导致 UUID 改变时需重新排除。
-- 「访问诊断与手动添加」隐藏在右上角「高级设置」，仅需首次绑定新的专用 App Group 时访问。
+- 可选择一个或多个 App 后「排除选中」，排除项会从首页列表和批量扫描/清理里跳过；可在**左上角**「管理已排除 App」恢复。排除信息保存在本地 App 设置中，按容器路径识别，App 重新安装导致 UUID 改变时需重新排除。
+- 权限设置、手动添加与可展开的访问诊断位于右上角「高级设置」。
 - 扫描后 App 可能自行生成或改变缓存；清理结果以实际删除数量与二次扫描为准，若出现错误应停止。
 - 这里对 3105 的扫描逻辑增加了严格错误传递：深层目录不可读时扫描会失败；清理如出现失败项也不会被标为完全成功。
 - App 的 `Caches` 和 `tmp` 也可能包含离线数据、登录态或下载内容；请备份后测试，不要首先操作重要 App。
@@ -79,4 +80,4 @@ xcodegen generate
 xcodebuild -project WorseCleaner.xcodeproj -scheme WorseCleaner -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix` 及 `worse-query-cleaner-v3` 至 `worse-query-cleaner-v13` 分支提交时构建未签名 IPA。
+GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix` 及 `worse-query-cleaner-v3` 至 `worse-query-cleaner-v14` 分支提交时构建未签名 IPA。

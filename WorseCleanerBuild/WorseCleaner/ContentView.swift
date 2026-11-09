@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var manualPath = ""
     @State private var confirmingClean = false
     @State private var showingDiagnostics = false
+    @State private var showingRunDetails = false
     @State private var showingAdvancedSettings = false
     @State private var showingExcluded = false
     @State private var confirmingOnlineNames = false
@@ -106,12 +107,25 @@ struct ContentView: View {
                     if !model.appGroupReady || !model.groupConfirmed {
                         signingWarning
                     }
-                Section("运行结果") {
-                    Text(model.status)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+                    Section("运行结果") {
+                        DisclosureGroup(isExpanded: $showingRunDetails) {
+                            Text(model.status)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .padding(.top, 4)
+                        } label: {
+                            HStack(spacing: 8) {
+                                contentIcon(model.busy ? "hourglass" : "checkmark.circle")
+                                    .foregroundStyle(.secondary)
+                                Text(model.busy ? "正在处理，请稍候" : model.status)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                        }
+                    }
                 }
                 .listStyle(.insetGrouped)
                 .scrollDismissesKeyboard(.interactively)
@@ -337,14 +351,10 @@ struct ContentView: View {
                 }
             }
         } header: {
-            HStack {
-                Text("已识别名称（\(namedApps.count)）")
-                Spacer()
+            HStack(spacing: 8) {
+                appSectionHeading("已识别名称", count: namedApps.count)
                 if model.busy { ProgressView().controlSize(.mini) }
             }
-            .textCase(nil)
-        } footer: {
-            Text("展示已识别名称及 Bundle ID · 已排除 \(model.excludedPaths.count) 项")
         }
     }
 
@@ -359,20 +369,14 @@ struct ContentView: View {
             Button {
                 showingBundleIDOnly.toggle()
             } label: {
-                HStack {
-                    Text("仅识别 Bundle ID（\(bundleIDOnlyApps.count)）")
-                    Spacer()
-                    Image(systemName: showingBundleIDOnly ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 14, weight: .medium))
-                        .frame(width: 18, height: 18)
-                }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
+                appSectionHeading("仅识别 Bundle ID", count: bundleIDOnlyApps.count,
+                                  expanded: showingBundleIDOnly)
             }
             .buttonStyle(.plain)
-            .textCase(nil)
         } footer: {
-            Text("系统未提供显示名称，可通过右上角菜单尝试补全。")
+            if showingBundleIDOnly || !searchText.isEmpty {
+                Text("这些项目有 Bundle ID，但系统未返回名称；可尝试联网补全。")
+            }
         }
     }
 
@@ -387,20 +391,14 @@ struct ContentView: View {
             Button {
                 showingUnidentifiedContainers.toggle()
             } label: {
-                HStack {
-                    Text("未识别数据容器（\(unidentifiedContainers.count)）")
-                    Spacer()
-                    Image(systemName: showingUnidentifiedContainers ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 14, weight: .medium))
-                        .frame(width: 18, height: 18)
-                }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
+                appSectionHeading("未识别数据容器", count: unidentifiedContainers.count,
+                                  expanded: showingUnidentifiedContainers)
             }
             .buttonStyle(.plain)
-            .textCase(nil)
         } footer: {
-            Text("UUID 不是软件名称。归属不明时请勿勾选清理。")
+            if showingUnidentifiedContainers || !searchText.isEmpty {
+                Text("UUID 不是 App 名称。无法确认归属时请勿清理。")
+            }
         }
     }
 
@@ -446,6 +444,27 @@ struct ContentView: View {
         .disabled(model.busy)
     }
 
+    /// All app-category headings share one typography and color treatment.
+    /// Collapsible categories add a chevron without changing the text style.
+    private func appSectionHeading(_ title: String, count: Int,
+                                   expanded: Bool? = nil) -> some View {
+        HStack(spacing: 8) {
+            Text("\(title)（\(count)）")
+            Spacer(minLength: 8)
+            if let expanded {
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 18, height: 18)
+                    .accessibilityHidden(true)
+            }
+        }
+        .font(.footnote.weight(.semibold))
+        .foregroundColor(Color(uiColor: .secondaryLabel))
+        .textCase(nil)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
     private var signingWarning: some View {
         Section {
             HStack(spacing: 8) {
@@ -459,73 +478,172 @@ struct ContentView: View {
         }
     }
 
-    private var diagnosticsSection: some View {
-        Section {
-            DisclosureGroup("访问诊断与手动添加", isExpanded: $showingDiagnostics) {
-                Text(model.accessDiagnostics)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                LabeledContent("签名里声明的 App Group") {
-                    Text(model.grantedGroups.isEmpty
-                         ? "无（签名可能已移除授权）"
-                         : "\(model.grantedGroups.count) 个")
-                        .foregroundStyle(model.grantedGroups.isEmpty ? Color.red : Color.secondary)
-                }
-                ForEach(model.grantedGroups, id: \.self) { group in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(group).font(.caption.monospaced()).textSelection(.enabled)
-                        Text(accessibleGroups.contains(group) ? "容器可访问" : "容器不可访问")
-                            .font(.caption2)
-                            .foregroundStyle(accessibleGroups.contains(group) ? Color.green : Color.red)
-                    }
-                }
-                if !accessibleGroups.isEmpty {
-                    Picker("用于 worse_query 的 App Group", selection: $model.groupID) {
-                        ForEach(accessibleGroups, id: \.self) {
-                            Text($0).tag($0)
-                        }
-                    }
-                    .disabled(model.busy)
-                    Toggle("确认该 App Group 专供本清理器使用", isOn: Binding(
-                        get: { model.groupConfirmed },
-                        set: { model.setGroupConfirmed($0) }
-                    ))
-                    .disabled(model.busy)
-                    Text("worse_query 会临时替换所选 App Group 的 Library/Caches。共享组可能影响其他 App；只有专用组才能勾选。")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-                TextField("App 容器 UUID 根路径", text: $manualPath)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.footnote.monospaced())
-                Button("深度发现 App 容器（慢速）") {
-                    model.deepDiscoverApps()
-                }
-                .disabled(model.busy)
-                Text("参考 worse_query 原版 pathleak；通过 inode 查找目录，可能耗时且不能保证列出全部 App。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("添加 App 容器") {
-                    model.addManualPath(manualPath.trimmingCharacters(in: .whitespacesAndNewlines))
-                    manualPath = ""
-                }
-                .disabled(manualPath.isEmpty || model.busy)
-            }
-        }
-    }
-
     private var advancedSettingsSheet: some View {
         NavigationStack {
             Form {
-                diagnosticsSection
+                Section("访问状态") {
+                    HStack(spacing: 12) {
+                        settingsIcon("checkmark.shield", color: .accentColor)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("缓存访问权限")
+                                .font(.subheadline.weight(.semibold))
+                            Text(model.appGroupReady
+                                 ? "已找到可访问的 App Group"
+                                 : "当前签名没有可访问的 App Group")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 4)
+                        Text(!model.appGroupReady ? "不可用" :
+                             (model.groupConfirmed ? "已确认" : "待确认"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(model.groupConfirmed ? Color.green : Color.orange)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background((model.groupConfirmed ? Color.green : Color.orange)
+                                            .opacity(0.10), in: Capsule())
+                    }
+                    .padding(.vertical, 5)
+                }
+
                 Section {
-                    Text("此页面为高级诊断功能。首页默认自动深度发现 App 容器；组权限仅对已确认的专用 App Group 生效。")
-                        .font(.footnote)
+                    if accessibleGroups.isEmpty {
+                        Label("没有可选的 App Group", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("专用 App Group", selection: $model.groupID) {
+                            ForEach(accessibleGroups, id: \.self) { group in
+                                Text(group).tag(group)
+                            }
+                        }
+                        .disabled(model.busy)
+
+                        Toggle("确认是 Cleaner 专用组", isOn: Binding(
+                            get: { model.groupConfirmed },
+                            set: { model.setGroupConfirmed($0) }
+                        ))
+                        .disabled(model.busy)
+                    }
+                } header: {
+                    Text("App Group 设置")
+                } footer: {
+                    Label("仅确认独立专用组。清理过程会临时替换该组的缓存目录，使用共享组可能影响其他 App。",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                Section {
+                    Button {
+                        model.deepDiscoverApps()
+                    } label: {
+                        HStack(spacing: 12) {
+                            settingsIcon("arrow.triangle.2.circlepath")
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("深度发现 App 容器")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text("按 inode 搜索 · 可能需要几分钟")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.busy)
+                } header: {
+                    Text("扫描工具")
+                } footer: {
+                    Text("首页已自动执行深度发现。此处用于手动重试，结果可能不完整。")
+                }
+
+                Section {
+                    TextField("输入容器 UUID 或完整路径", text: $manualPath)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.subheadline.monospaced())
+                    Button {
+                        model.addManualPath(manualPath.trimmingCharacters(in: .whitespacesAndNewlines))
+                        manualPath = ""
+                    } label: {
+                        Label("添加 App 容器", systemImage: "plus.circle")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .disabled(manualPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
+                } header: {
+                    Text("手动添加")
+                } footer: {
+                    Text("仅添加已确认来源的容器路径；添加后仍需扫描验证权限。")
+                }
+
+                Section {
+                    DisclosureGroup(isExpanded: $showingDiagnostics) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("签名声明的 App Group")
+                                    .font(.caption.weight(.semibold))
+                                Spacer()
+                                Text("\(model.grantedGroups.count) 个")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if model.grantedGroups.isEmpty {
+                                Text("当前签名未声明 App Group")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ForEach(model.grantedGroups, id: \.self) { group in
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Image(systemName: accessibleGroups.contains(group)
+                                              ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                            .font(.system(size: 15))
+                                            .foregroundStyle(accessibleGroups.contains(group)
+                                                             ? Color.green : Color.orange)
+                                            .frame(width: 18, height: 18)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(group)
+                                                .font(.caption.monospaced())
+                                                .textSelection(.enabled)
+                                            Text(accessibleGroups.contains(group)
+                                                 ? "容器可访问" : "容器不可访问")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text("扫描诊断日志")
+                                .font(.caption.weight(.semibold))
+                            Text(model.accessDiagnostics)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(Color(uiColor: .tertiarySystemGroupedBackground),
+                                            in: RoundedRectangle(cornerRadius: 12))
+                        }
+                        .padding(.top, 6)
+                    } label: {
+                        Label("查看访问诊断日志", systemImage: "doc.text.magnifyingglass")
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                    }
+                } header: {
+                    Text("诊断信息")
+                } footer: {
+                    Text("日志仅用于排查权限问题。系统拒绝元数据访问时，可能无法显示 App 名称。")
+                }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("高级设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -534,6 +652,14 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private func settingsIcon(_ name: String, color: Color = .primary) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 18, weight: .medium))
+            .foregroundStyle(color)
+            .frame(width: 24, height: 24, alignment: .center)
+            .accessibilityHidden(true)
     }
 
     private var excludedAppsSheet: some View {
