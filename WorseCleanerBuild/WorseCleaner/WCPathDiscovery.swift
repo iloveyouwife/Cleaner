@@ -16,7 +16,10 @@ enum WCPathDiscovery {
             throw WCFailure.inaccessible("临时 inode 基准", errno)
         }
         let baselineInode = UInt64(information.st_ino)
-        let cap = min(baselineInode, maximumInodes)
+        // Do not use an inode from the Data volume as the upper bound for a
+        // possibly different Bundle volume. Both volumes receive the same
+        // explicit safety cap, and results remain best-effort.
+        let cap = maximumInodes
         let bundleRoot = "/private/var/containers/Bundle/Application/"
         let roots = pathleak_multiple([
             "/private/var/mobile/Containers/Data/Application",

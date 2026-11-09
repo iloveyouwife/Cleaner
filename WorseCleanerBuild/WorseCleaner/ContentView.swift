@@ -13,10 +13,12 @@ struct ContentView: View {
     @State private var showingAdvancedSettings = false
     @State private var showingExcluded = false
     @State private var confirmingOnlineNames = false
+    @State private var showingSystemServices = false
 
     private var filteredApps: [WCTarget] {
         let matching = model.apps.filter {
-            !model.excludedPaths.contains($0.path) && (
+            !model.excludedPaths.contains($0.path) &&
+            (showingSystemServices || !isInternalSystemService($0.bundleID)) && (
                 searchText.isEmpty ||
                 $0.name.localizedCaseInsensitiveContains(searchText) ||
                 $0.bundleID.localizedCaseInsensitiveContains(searchText)
@@ -38,7 +40,9 @@ struct ContentView: View {
 
     private var availableSize: Int64 {
         model.apps.reduce(0) { sum, app in
-            sum + (model.excludedPaths.contains(app.path) ? 0 : model.usage[app.id]?.totalBytes ?? 0)
+            let visible = showingSystemServices || !isInternalSystemService(app.bundleID)
+            return sum + ((!visible || model.excludedPaths.contains(app.path))
+                ? 0 : model.usage[app.id]?.totalBytes ?? 0)
         }
     }
 
@@ -92,6 +96,11 @@ struct ContentView: View {
                     .disabled(model.busy)
                     .accessibilityLabel("刷新 App 列表")
                     Menu {
+                        Button(showingSystemServices ? "隐藏系统内部服务" : "显示系统内部服务",
+                               systemImage: "gearshape.2") {
+                            showingSystemServices.toggle()
+                            selectedIDs.removeAll()
+                        }
                         Button("联网补全未识别的 App 名称", systemImage: "text.magnifyingglass") {
                             confirmingOnlineNames = true
                         }
@@ -413,5 +422,16 @@ struct ContentView: View {
     private func sizeText(_ bytes: Int64) -> String {
         if bytes == 0 { return "0 KB" }
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private func isInternalSystemService(_ bundleID: String) -> Bool {
+        // These are OS helper containers, not independently launchable
+        // Home Screen apps. Keep them available under the explicit menu.
+        let helperIDs: Set<String> = [
+            "com.apple.GameOverlayUI", "com.apple.HeadphoneProxService",
+            "com.apple.PassbookUIService", "com.apple.PDUIApp",
+            "com.apple.SIMSetupUIService", "com.apple.webapp"
+        ]
+        return helperIDs.contains(bundleID)
     }
 }

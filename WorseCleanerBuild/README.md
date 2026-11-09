@@ -51,6 +51,7 @@ GitHub Actions 生成的是**未签名编译产物**，无法代替你的签名�
 - v5 针对 iOS 27 第三方 App 的 LaunchServices 名称不可见问题，先在临时只读授权范围内枚举 `/var/containers/Bundle/Application/<UUID>/*.app/Info.plist` 构建当前安装 App 的名称表，再为常见 App 的已知确切 Bundle ID（如微信、淘宝、抖音、京东）提供离线名称回退。未知 Bundle ID 仍如实显示包名，不冒充已确认 App。
 - v6 为已识别 Bundle ID 尝试优先显示**真实应用图标**（参考 3105 的 `LSApplicationProxy iconDataForVariant:`，再从本机安装的 `.app` 图标文件或资源中读取）。系统拒绝图标接口时才显示通用占位图。名称读取以当前已安装 App 的本地化 `Info.plist` 优先；新增可自愿点击的「联网补全未识别的 App 名称」，仅把缺少名称的 Bundle ID 发送给 Apple App Store 公开查询接口（每次至多 80 个，支持重复查询），**不从 App Store 拉取或使用受授权限制的图标**。设备或服务器不提供真实名称、图标时会明确回退显示 Bundle ID 和占位图，不保证 100% 识别。
 - v7 根据 iOS 27.0.1 真机反馈，修正仅凭 LaunchServices 或安装目录父级扩展取图标的问题：`pathleak_multiple` 单次 inode 遍历同时发现 App 数据根目录和安装包 UUID 目录；对每个已发现安装包目录逐个尝试独立的 `worse_query` 只读授权后读取 `Info.plist` 与资源图标。新增 UIKit 原生图标查询回退，并在「高级设置 → 访问诊断与手动添加」列出安装目录发现数、成功授权数、本地 Info.plist 与图标读取数，以便验证实际权限边界。若 Apple 不授权，不能宣称图标已成功读取。
+- v8 修复 v7 的一个真正的枚举错误：当数据容器与应用安装包位于不同 APFS 卷时，`pathleak_multiple` 原来只使用第一个目录的 `fsid`，会让第二个卷的扫描永远为零。现在分别 `statfs` 每个目录、按卷分组并针对每个卷单独调用 `fsgetpath`；统一使用 500 万 inode 限额，避免以数据卷 inode 上限限制安装包卷。首页默认隐藏已确认的少数 Apple 内部服务容器，右上角可恢复显示；切换时清空已选中项目，防止隐藏项目被误清理。**不能保证该修正会突破 iOS 27.0.1 对安装目录的沙盒限制；诊断结果仍应为准。**
 - 首次载入自动执行慢速 inode 深度发现（可能耗时数分钟）；对之前已经确认过的**同一个专用 App Group**，会自动继续扫描缓存。首次新组需要用户确认后手动触发扫描。
 - 可选择一个或多个 App 后「排除选中」，排除项会从首页列表和批量扫描/清理里跳过；可在右上角「管理已排除 App」恢复。排除信息保存在本地 App 设置中，按容器路径识别，App 重新安装导致 UUID 改变时需重新排除。
 - 「访问诊断与手动添加」隐藏在右上角「高级设置」，仅需首次绑定新的专用 App Group 时访问。
@@ -69,4 +70,4 @@ xcodegen generate
 xcodebuild -project WorseCleaner.xcodeproj -scheme WorseCleaner -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix`、`worse-query-cleaner-v3`、`worse-query-cleaner-v4`、`worse-query-cleaner-v5`、`worse-query-cleaner-v6`、`worse-query-cleaner-v7` 分支提交时构建未签名 IPA。
+GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix`、`worse-query-cleaner-v3`、`worse-query-cleaner-v4`、`worse-query-cleaner-v5`、`worse-query-cleaner-v6`、`worse-query-cleaner-v7`、`worse-query-cleaner-v8` 分支提交时构建未签名 IPA。

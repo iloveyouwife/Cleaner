@@ -34,9 +34,12 @@
 // It might be possible to derive a sane inode value automagically by just creating a file, doing stat() on it, getting *that* file's inode, then using that for the max_inode count.
 
 NSArray<NSString *> *pathleak_multiple(NSArray<NSString *> *paths, uint64_t max_inode) {
-    // Sanity checks
+    // Each root may belong to a different APFS volume. v7 looked up only
+    // paths.firstObject's fsid, silently missing every Bundle/Application
+    // inode when Data/Application was on another volume.
     if (!paths.count || max_inode < 1) return nil;
-    NSMutableArray<NSData *> *prefixes = [NSMutableArray array];
+    NSMutableArray<NSValue *> *volumeIDs = [NSMutableArray array];
+    NSMutableArray<NSMutableArray<NSData *> *> *volumePrefixes = [NSMutableArray array];
     for (NSString *path in paths) {
         if (![path isKindOfClass:NSString.class] || !path.length) continue;
         NSString *trimmed = path;
@@ -44,34 +47,62 @@ NSArray<NSString *> *pathleak_multiple(NSArray<NSString *> *paths, uint64_t max_
             trimmed = [trimmed substringToIndex:trimmed.length - 1];
         }
         NSData *prefix = [trimmed dataUsingEncoding:NSUTF8StringEncoding];
-        if (prefix.length > 0 && prefix.length < PATH_MAX - 2) {
-            [prefixes addObject:prefix];
+        if (prefix.length == 0 || prefix.length >= PATH_MAX - 2) continue;
+
+        struct statfs sfs;
+        // statfs need not allow readdir; try the parent when lookup of the
+        // protected leaf fails. Do not infer an fsid from a different root.
+        NSString *probe = trimmed;
+        BOOL foundVolume = NO;
+        for (NSUInteger attempt = 0; attempt < 3; ++attempt) {
+            if (statfs(probe.fileSystemRepresentation, &sfs) == 0) {
+                foundVolume = YES;
+                break;
+            }
+            NSString *parent = [probe stringByDeletingLastPathComponent];
+            if ([parent isEqualToString:probe]) break;
+            probe = parent;
         }
+        if (!foundVolume) continue;
+
+        NSUInteger volume = NSNotFound;
+        for (NSUInteger i = 0; i < volumeIDs.count; ++i) {
+            fsid_t saved;
+            [volumeIDs[i] getValue:&saved];
+            if (memcmp(&saved, &sfs.f_fsid, sizeof(fsid_t)) == 0) {
+                volume = i;
+                break;
+            }
+        }
+        if (volume == NSNotFound) {
+            volume = volumeIDs.count;
+            [volumeIDs addObject:[NSValue valueWithBytes:&sfs.f_fsid objCType:@encode(fsid_t)]];
+            [volumePrefixes addObject:[NSMutableArray array]];
+        }
+        [volumePrefixes[volume] addObject:prefix];
     }
-    if (!prefixes.count) return nil;
-    
-    // Set everything up
-    struct statfs sfs;
-    if (statfs([paths.firstObject fileSystemRepresentation], &sfs) != 0) return nil;
-    fsid_t fsid = sfs.f_fsid;
+    if (!volumeIDs.count) return nil;
     
     NSFileManager *files = [NSFileManager defaultManager];
     NSMutableArray<NSString *> *result = [NSMutableArray array];
     char buffer[PATH_MAX];
     
-    // Brute-force inodes to their corresponding paths
-    // I'd like to make this multithreaded at some point, but I don't think it'll help.
-    for (uint64_t inode = 1; inode <= max_inode; inode++) {
-        ssize_t n = fsgetpath(buffer, sizeof(buffer), &fsid, inode);
-        if (n <= 0) continue;
-        
-        for (NSData *prefix in prefixes) {
-            size_t len = prefix.length;
-            if (n <= (ssize_t)len || strncmp(buffer, prefix.bytes, len) != 0) continue;
-            if (buffer[len] != '/' || strchr(buffer + len + 1, '/')) continue;
-            NSString *string = [files stringWithFileSystemRepresentation:buffer length:strlen(buffer)];
-            if (string) [result addObject:string];
-            break;
+    for (NSUInteger volume = 0; volume < volumeIDs.count; ++volume) {
+        fsid_t fsid;
+        [volumeIDs[volume] getValue:&fsid];
+        NSArray<NSData *> *prefixes = volumePrefixes[volume];
+        // One inode walk per distinct volume, not one for every root.
+        for (uint64_t inode = 1; inode <= max_inode; ++inode) {
+            ssize_t n = fsgetpath(buffer, sizeof(buffer), &fsid, inode);
+            if (n <= 0) continue;
+            for (NSData *prefix in prefixes) {
+                size_t len = prefix.length;
+                if (n <= (ssize_t)len || strncmp(buffer, prefix.bytes, len) != 0) continue;
+                if (buffer[len] != '/' || strchr(buffer + len + 1, '/')) continue;
+                NSString *string = [files stringWithFileSystemRepresentation:buffer length:strlen(buffer)];
+                if (string) [result addObject:string];
+                break;
+            }
         }
     }
     return result;
