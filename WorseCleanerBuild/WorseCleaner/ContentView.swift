@@ -547,7 +547,8 @@ struct ContentView: View {
                 } header: {
                     Text("App Group 设置")
                 } footer: {
-                    warningFootnote("只确认 Cleaner 独占的 App Group。清理时会临时替换该组缓存目录；共享组可能影响其他 App。")
+                    Text("只确认 Cleaner 独占的 App Group。清理时会临时替换该组缓存目录；共享组可能影响其他 App。")
+                        .font(.footnote)
                 }
 
                 Section {
@@ -683,25 +684,6 @@ struct ContentView: View {
             .foregroundStyle(color)
             .frame(width: 20, height: 20, alignment: .center)
             .accessibilityHidden(true)
-    }
-
-    /// Match the warning symbol's optical size to the footnote text, and
-    /// align its baseline with the first line even when the text wraps.
-    private func warningFootnote(_ message: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 17, alignment: .center)
-                .alignmentGuide(.firstTextBaseline) { dimensions in
-                    dimensions[.bottom] - 2
-                }
-                .accessibilityHidden(true)
-            Text(message)
-                .font(.footnote)
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .foregroundColor(Color(uiColor: .secondaryLabel))
     }
 
     private var excludedAppsSheet: some View {
