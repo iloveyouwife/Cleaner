@@ -22,12 +22,14 @@ final class WorseCleanerModel: ObservableObject {
     @Published var groupID = ""
     @Published var groupConfirmed = false
     @Published var scannedAppCount = 0
+    @Published var iconDiagnostics = "尚未扫描图标。"
     @Published private(set) var excludedPaths = Set(
         UserDefaults.standard.stringArray(forKey: "wc.excludedPaths") ?? []
     )
 
     private let queue = DispatchQueue(label: "org.worsecleaner.serial", qos: .userInitiated)
     private let confirmedGroupKey = "wc.confirmedDedicatedGroup"
+    private var discoveredBundleRoots: [String] = []
 
     func setGroupConfirmed(_ value: Bool) {
         groupConfirmed = value && appGroupReady
@@ -114,10 +116,13 @@ final class WorseCleanerModel: ObservableObject {
             DispatchQueue.main.async {
                 self.busy = false
                 switch result {
-                case .success(let (found, capped)):
+                case .success(let result):
+                    let found = result.data
+                    let capped = result.capped
+                    self.discoveredBundleRoots = result.bundles
                     let existing = Set(self.apps.map(\.path))
                     self.apps.append(contentsOf: found.filter { !existing.contains($0.path) })
-                    self.status = "inode 枚举发现 \(found.count) 个路径，当前列表 \(self.apps.count) 项"
+                    self.status = "inode 枚举发现 \(found.count) 个 App 数据目录、\(result.bundles.count) 个安装目录，当前列表 \(self.apps.count) 项"
                         + (capped ? "；已达到 500 万 inode 上限，可能漏掉 App。" : "。")
                     if automaticallyScan && self.appGroupReady && self.groupConfirmed {
                         self.scanAll()
@@ -138,8 +143,9 @@ final class WorseCleanerModel: ObservableObject {
         busy = true
         status = "正在扫描 \(target.name)……"
         let selectedGroup = groupID
+        let bundleRoots = discoveredBundleRoots
         queue.async {
-            let catalog = WCAppNames.catalog(groupID: selectedGroup)
+            let catalog = WCAppNames.catalog(groupID: selectedGroup, discoveredBundleRoots: bundleRoots)
             let result = Result {
                 try WCFileAccess.inspect(target, groupID: selectedGroup, knownNames: catalog.names)
             }
@@ -148,6 +154,7 @@ final class WorseCleanerModel: ObservableObject {
             }
             DispatchQueue.main.async {
                 self.busy = false
+                self.iconDiagnostics = catalog.diagnostics
                 switch result {
                 case .success(let inspection):
                     self.usage[target.id] = inspection.usage
@@ -198,10 +205,11 @@ final class WorseCleanerModel: ObservableObject {
         busy = true
         let targets = apps.filter { !excludedPaths.contains($0.path) }
         let selectedGroup = groupID
+        let bundleRoots = discoveredBundleRoots
         scannedAppCount = 0
         status = "正在检查已发现 App 的缓存权限……"
         queue.async {
-            let catalog = WCAppNames.catalog(groupID: selectedGroup)
+            let catalog = WCAppNames.catalog(groupID: selectedGroup, discoveredBundleRoots: bundleRoots)
             var results: [String: LimitedCleanerUsage] = [:]
             var identities: [String: WCTarget] = [:]
             var icons = catalog.icons
@@ -240,6 +248,7 @@ final class WorseCleanerModel: ObservableObject {
             DispatchQueue.main.async {
                 self.usage.merge(results) { _, newer in newer }
                 self.appIcons.merge(icons) { _, new in new }
+                self.iconDiagnostics = catalog.diagnostics + " 列表图标合计 \(icons.count)。"
                 self.apps = self.apps.map { identities[$0.id] ?? $0 }
                 self.busy = false
                 let stats = "名称识别：\(namedCount) 个真实名称、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个待识别。"

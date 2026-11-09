@@ -7,6 +7,7 @@
 #import <dlfcn.h>
 #import <objc/message.h>
 #import <xpc/xpc.h>
+#import <UIKit/UIKit.h>
 
 typedef void *(*WCQueryCreate)(void);
 typedef void (*WCQuerySetU64)(void *, uint64_t);
@@ -106,19 +107,48 @@ NSData *WCLookupApplicationIconData(NSString *bundleID) {
     WCLoadLaunchServices();
     Class proxyClass = NSClassFromString(@"LSApplicationProxy");
     SEL proxySelector = NSSelectorFromString(@"applicationProxyForIdentifier:");
-    if (!proxyClass || ![proxyClass respondsToSelector:proxySelector]) return nil;
-    id proxy = ((id (*)(id, SEL, id))objc_msgSend)(proxyClass, proxySelector, bundleID);
-    if (!proxy) return nil;
+    id proxy = (proxyClass && [proxyClass respondsToSelector:proxySelector])
+        ? ((id (*)(id, SEL, id))objc_msgSend)(proxyClass, proxySelector, bundleID) : nil;
 
     // Same private, read-only icon method and variants as 3105's
     // AppIconHelper.m. Some iOS versions deny it to ordinary signed apps.
     SEL iconSelector = NSSelectorFromString(@"iconDataForVariant:");
-    if (![proxy respondsToSelector:iconSelector]) return nil;
-    const int variants[] = {2, 0, 1, 3, 4, 5, 6, 7, 15};
-    for (NSUInteger i = 0; i < sizeof(variants) / sizeof(variants[0]); ++i) {
-        id data = ((id (*)(id, SEL, int))objc_msgSend)(proxy, iconSelector, variants[i]);
-        if ([data isKindOfClass:NSData.class] && [data length] > 0 &&
-            [data length] <= 8 * 1024 * 1024) return data;
+    if (proxy && [proxy respondsToSelector:iconSelector]) {
+        const int variants[] = {2, 0, 1, 3, 4, 5, 6, 7, 15};
+        for (NSUInteger i = 0; i < sizeof(variants) / sizeof(variants[0]); ++i) {
+            id data = ((id (*)(id, SEL, int))objc_msgSend)(proxy, iconSelector, variants[i]);
+            if ([data isKindOfClass:NSData.class] && [data length] > 0 &&
+                [data length] <= 8 * 1024 * 1024) return data;
+        }
+    }
+
+    // Independent UIKit route used by other non-jailbroken iOS app browsers.
+    // It can succeed even when LaunchServices refuses to return a proxy.
+    Class imageClass = UIImage.class;
+    SEL modern = NSSelectorFromString(@"_applicationIconImageForBundleIdentifier:format:scale:");
+    if ([imageClass respondsToSelector:modern]) {
+        const int formats[] = {0, 1, 2, 10, 11, 12};
+        for (NSUInteger i = 0; i < sizeof(formats) / sizeof(formats[0]); ++i) {
+            @try {
+                id icon = ((id (*)(id, SEL, id, int, double))objc_msgSend)(
+                    imageClass, modern, bundleID, formats[i], [UIScreen mainScreen].scale
+                );
+                if ([icon isKindOfClass:UIImage.class]) {
+                    NSData *data = UIImagePNGRepresentation(icon);
+                    if (data.length > 0 && data.length < 8 * 1024 * 1024) return data;
+                }
+            } @catch (NSException *exception) { /* Treat unavailable icon as unsupported. */ }
+        }
+    }
+    SEL legacy = NSSelectorFromString(@"_applicationIconImageForBundleIdentifier:format:");
+    if ([imageClass respondsToSelector:legacy]) {
+        @try {
+            id icon = ((id (*)(id, SEL, id, int))objc_msgSend)(imageClass, legacy, bundleID, 0);
+            if ([icon isKindOfClass:UIImage.class]) {
+                NSData *data = UIImagePNGRepresentation(icon);
+                if (data.length > 0 && data.length < 8 * 1024 * 1024) return data;
+            }
+        } @catch (NSException *exception) { /* Treat unavailable icon as unsupported. */ }
     }
     return nil;
 }

@@ -262,6 +262,10 @@ struct ContentView: View {
     private var diagnosticsSection: some View {
         Section {
             DisclosureGroup("访问诊断与手动添加", isExpanded: $showingDiagnostics) {
+                Text(model.iconDiagnostics)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
                 LabeledContent("签名里声明的 App Group") {
                     Text(model.grantedGroups.isEmpty
                          ? "无（签名可能已移除授权）"

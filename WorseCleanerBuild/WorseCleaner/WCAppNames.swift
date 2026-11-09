@@ -5,6 +5,7 @@ import UIKit
 struct WCAppCatalog {
     let names: [String: String]
     let icons: [String: UIImage]
+    let diagnostics: String
 }
 
 // The system may hide third-party LSApplicationProxy display names even when
@@ -34,7 +35,13 @@ enum WCAppNames {
         "tv.danmaku.bilianime": "哔哩哔哩",
         "com.openai.chat": "ChatGPT",
         "com.google.ios.youtube": "YouTube",
-        "com.spotify.client": "Spotify"
+        "com.spotify.client": "Spotify",
+        "com.apple.AppStore": "App Store",
+        "com.apple.weather": "天气",
+        "com.autonavi.amap": "高德地图",
+        "com.sf-express.waybillcn": "顺丰速运",
+        "com.haier.uhome.Uplus": "海尔智家",
+        "cn.gov.tax.its": "个人所得税"
     ]
 
     static func displayName(for bundleID: String, names: [String: String]) -> String? {
@@ -114,26 +121,25 @@ enum WCAppNames {
                 if let image = UIImage(contentsOfFile: appPath + "/" + file) { return image }
             }
         }
+        // Modern signed IPAs commonly carry a loose compiled icon beside
+        // Assets.car, even when CFBundleIconFiles only names the asset catalog.
+        for file in ["AppIcon60x60@3x.png", "AppIcon60x60@2x.png",
+                     "AppIcon76x76@2x~ipad.png", "Icon-60@3x.png", "Icon-60@2x.png"] {
+            if let image = UIImage(contentsOfFile: appPath + "/" + file) { return image }
+        }
         return nil
     }
 
-    static func catalog(groupID: String) -> WCAppCatalog {
+    static func catalog(groupID: String, discoveredBundleRoots: [String] = []) -> WCAppCatalog {
         var names = offlineNames
         names.merge(savedNames()) { _, saved in saved }
         var icons: [String: UIImage] = [:]
         let root = "/var/containers/Bundle/Application"
-        // This mirrors 3105's app-bundle metadata catalog. It is read-only.
-        // A dedicated App Group remains mandatory because worse_query
-        // temporarily replaces its Library/Caches while acquiring a token.
-        let lease = worse_query(root, groupID, false, true)
-        guard lease > 0 else { return WCAppCatalog(names: names, icons: icons) }
-        defer { worse_query_release(lease) }
-
         let fm = FileManager.default
-        let folders = (try? fm.contentsOfDirectory(atPath: root)) ?? []
-        for folder in folders.prefix(2_048) {
-            guard UUID(uuidString: folder) != nil else { continue }
-            let path = root + "/" + folder
+        var readableApps = 0
+        var readableBundleRoots = 0
+        var enumeratedPaths: Set<String> = []
+        func inspectBundleRoot(_ path: String) {
             let entries = (try? fm.contentsOfDirectory(atPath: path)) ?? []
             for item in entries.prefix(16) where item.hasSuffix(".app") {
                 let appPath = path + "/" + item
@@ -145,6 +151,7 @@ enum WCAppNames {
                       ) as? [String: Any],
                       let bundleID = info["CFBundleIdentifier"] as? String,
                       !bundleID.isEmpty else { continue }
+                readableApps += 1
                 if let name = installedName(at: appPath, info: info) {
                     names[bundleID] = name
                 }
@@ -153,6 +160,43 @@ enum WCAppNames {
                 }
             }
         }
-        return WCAppCatalog(names: names, icons: icons)
+
+        // First try one read-only sandbox extension for the bundle parent.
+        // On iOS 27 this may not expose children even when data containers work.
+        let rootLease = worse_query(root, groupID, false, true)
+        if rootLease > 0 {
+            let folders = (try? fm.contentsOfDirectory(atPath: root)) ?? []
+            for folder in folders.prefix(2_048) where UUID(uuidString: folder) != nil {
+                let path = root + "/" + folder
+                let before = readableApps
+                inspectBundleRoot(path)
+                if readableApps > before {
+                    enumeratedPaths.insert(path)
+                    readableBundleRoots += 1
+                }
+            }
+            worse_query_release(rootLease)
+        }
+
+        // Critical fallback: pathleak finds UUIDs through fsgetpath even when
+        // readdir of Bundle/Application is denied. Acquire a scoped token for
+        // each *existing* bundle directory and read its Info.plist/icons.
+        // This avoids assuming a parent directory token grants child access.
+        var perRootGrants = 0
+        for rawPath in Set(discoveredBundleRoots).sorted().prefix(2_048) {
+            let path = rawPath.replacingOccurrences(of: "/private/var/", with: "/var/")
+            guard path.hasPrefix(root + "/"),
+                  UUID(uuidString: String(path.dropFirst(root.count + 1))) != nil,
+                  !enumeratedPaths.contains(path) else { continue }
+            let scopedLease = worse_query(path, groupID, false, true)
+            guard scopedLease > 0 else { continue }
+            perRootGrants += 1
+            let before = readableApps
+            inspectBundleRoot(path)
+            if readableApps > before { readableBundleRoots += 1 }
+            worse_query_release(scopedLease)
+        }
+        let info = "安装包根目录 token=\(rootLease)，pathleak 发现 \(discoveredBundleRoots.count) 个安装目录，单目录授权 \(perRootGrants)，读到 \(readableApps) 份 Info.plist、\(icons.count) 个本地图标。"
+        return WCAppCatalog(names: names, icons: icons, diagnostics: info)
     }
 }

@@ -6,7 +6,7 @@ enum WCPathDiscovery {
     // a capped inode walk as a complete installed-app inventory.
     static let maximumInodes: UInt64 = 5_000_000
 
-    static func enumerateRoots() throws -> ([WCTarget], Bool) {
+    static func enumerateRoots() throws -> (data: [WCTarget], bundles: [String], capped: Bool) {
         let baseline = FileManager.default.temporaryDirectory
             .appendingPathComponent(".wc-inode-\(UUID().uuidString)")
         try Data([0]).write(to: baseline)
@@ -17,7 +17,11 @@ enum WCPathDiscovery {
         }
         let baselineInode = UInt64(information.st_ino)
         let cap = min(baselineInode, maximumInodes)
-        let roots = pathleak("/private/var/mobile/Containers/Data/Application", cap) ?? []
+        let bundleRoot = "/private/var/containers/Bundle/Application/"
+        let roots = pathleak_multiple([
+            "/private/var/mobile/Containers/Data/Application",
+            "/private/var/containers/Bundle/Application"
+        ], cap) ?? []
         let targets = roots.compactMap { path -> WCTarget? in
             guard WCFileAccess.isValidApplicationContainer(path) else { return nil }
             let uuid = URL(fileURLWithPath: path).lastPathComponent
@@ -27,6 +31,11 @@ enum WCPathDiscovery {
                 path: path
             )
         }
-        return (targets, baselineInode > cap)
+        let bundles = roots.filter { path in
+            guard path.hasPrefix(bundleRoot) else { return false }
+            let suffix = String(path.dropFirst(bundleRoot.count))
+            return !suffix.contains("/") && UUID(uuidString: suffix) != nil
+        }
+        return (targets, bundles, baselineInode > cap)
     }
 }
