@@ -876,7 +876,7 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .frame(minHeight: 36)
+            .frame(minHeight: 28)
             .padding(.horizontal, 10)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
