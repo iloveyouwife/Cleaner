@@ -46,10 +46,25 @@ static WCCatalogAPI WCLoadAPI(void) {
     return api;
 }
 
+static BOOL WCValidIdentifier(NSString *value);
+
 static id WCInvoke(id object, NSString *method) {
     SEL selector = NSSelectorFromString(method);
     if (!object || ![object respondsToSelector:selector]) return nil;
     return ((id (*)(id, SEL))objc_msgSend)(object, selector);
+}
+
+NSString *WCLookupApplicationName(NSString *bundleID) {
+    if (!WCValidIdentifier(bundleID)) return nil;
+    Class proxyClass = NSClassFromString(@"LSApplicationProxy");
+    SEL selector = NSSelectorFromString(@"applicationProxyForIdentifier:");
+    if (!proxyClass || ![proxyClass respondsToSelector:selector]) return nil;
+    id proxy = ((id (*)(id, SEL, id))objc_msgSend)(proxyClass, selector, bundleID);
+    NSString *label = WCInvoke(proxy, @"localizedName");
+    if (![label isKindOfClass:NSString.class] || !label.length) {
+        label = WCInvoke(proxy, @"applicationLabel");
+    }
+    return [label isKindOfClass:NSString.class] && label.length ? label : nil;
 }
 
 static BOOL WCValidIdentifier(NSString *value) {

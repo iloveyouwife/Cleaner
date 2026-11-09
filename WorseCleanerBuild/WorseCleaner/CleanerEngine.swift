@@ -18,6 +18,11 @@ struct WCTarget: Identifiable, Hashable {
     }
 }
 
+struct WCInspection {
+    let target: WCTarget
+    let usage: LimitedCleanerUsage
+}
+
 enum WCFailure: LocalizedError {
     case invalidTarget
     case noAppGroup
@@ -147,13 +152,59 @@ enum WCFileAccess {
     }
 
     static func scan(_ target: WCTarget, groupID: String) throws -> LimitedCleanerUsage {
+        try inspect(target, groupID: groupID).usage
+    }
+
+    static func inspect(_ target: WCTarget, groupID: String) throws -> WCInspection {
         try withLease(for: target, groupID: groupID) {
             try checkReadableDirectories(target)
-            return try LimitedCleanerService.scan(
+            let identified = inspectIdentity(target)
+            let usage = try LimitedCleanerService.scan(
                 containerURL: URL(fileURLWithPath: target.path),
                 rootValidator: { isValidApplicationContainer($0.path) && $0.path == target.path }
             )
+            return WCInspection(target: identified, usage: usage)
         }
+    }
+
+    private static func inspectIdentity(_ target: WCTarget) -> WCTarget {
+        let metadataPath = target.path + "/.com.apple.mobile_container_manager.metadata.plist"
+        let fd = open(metadataPath, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return target }
+        defer { close(fd) }
+        var st = stat()
+        guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else {
+            return target
+        }
+
+        // MCM metadata is small; cap parsing to avoid unusual files.
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while data.count < 131_072 {
+            let count = read(fd, &buffer, min(buffer.count, 131_072 - data.count))
+            if count <= 0 { break }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+        guard let plist = try? PropertyListSerialization.propertyList(
+            from: data, options: [], format: nil
+        ) as? [String: Any] else {
+            return target
+        }
+        let identifier = (plist["MCMMetadataIdentifier"] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !identifier.isEmpty,
+              identifier.range(of: "^[A-Za-z0-9._-]{3,255}$", options: .regularExpression) != nil else {
+            return target
+        }
+        let info = plist["MCMMetadataInfo"] as? [String: Any] ?? [:]
+        let metadataName = (info["CFBundleDisplayName"] as? String)
+            ?? (info["CFBundleName"] as? String)
+            ?? ""
+        let localizedName = WCLookupApplicationName(identifier)
+        let displayName = (localizedName?.isEmpty == false ? localizedName : nil)
+            ?? (metadataName.isEmpty ? identifier : metadataName)
+        return (try? WCTarget(bundleID: identifier, name: displayName, path: target.path))
+            ?? target
     }
 
     static func clean(_ target: WCTarget, groupID: String) throws -> LimitedCleanerResult {

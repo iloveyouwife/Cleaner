@@ -10,12 +10,16 @@ struct ContentView: View {
     @State private var manualPath = ""
     @State private var confirmingClean = false
     @State private var showingDiagnostics = false
+    @State private var showingAdvancedSettings = false
+    @State private var showingExcluded = false
 
     private var filteredApps: [WCTarget] {
         let matching = model.apps.filter {
-            searchText.isEmpty ||
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            $0.bundleID.localizedCaseInsensitiveContains(searchText)
+            !model.excludedPaths.contains($0.path) && (
+                searchText.isEmpty ||
+                $0.name.localizedCaseInsensitiveContains(searchText) ||
+                $0.bundleID.localizedCaseInsensitiveContains(searchText)
+            )
         }
         return matching.sorted { lhs, rhs in
             let a = model.usage[lhs.id]?.totalBytes ?? -1
@@ -32,7 +36,9 @@ struct ContentView: View {
     }
 
     private var availableSize: Int64 {
-        model.usage.values.reduce(0) { $0 + $1.totalBytes }
+        model.apps.reduce(0) { sum, app in
+            sum + (model.excludedPaths.contains(app.path) ? 0 : model.usage[app.id]?.totalBytes ?? 0)
+        }
     }
 
     private var accessibleGroups: [String] {
@@ -63,7 +69,6 @@ struct ContentView: View {
                     if !model.appGroupReady || !model.groupConfirmed {
                         signingWarning
                     }
-                    diagnosticsSection
                     Section("运行结果") {
                         Text(model.status)
                             .font(.footnote)
@@ -85,8 +90,20 @@ struct ContentView: View {
                     }
                     .disabled(model.busy)
                     .accessibilityLabel("刷新 App 列表")
+                    Menu {
+                        Button("管理已排除 App（\(model.excludedPaths.count)）", systemImage: "eye.slash") {
+                            showingExcluded = true
+                        }
+                        Button("高级设置", systemImage: "gearshape") {
+                            showingAdvancedSettings = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
                 }
             }
+            .sheet(isPresented: $showingAdvancedSettings) { advancedSettingsSheet }
+            .sheet(isPresented: $showingExcluded) { excludedAppsSheet }
             .alert("确认清理缓存", isPresented: $confirmingClean) {
                 Button("确认删除", role: .destructive) {
                     model.cleanSelected(selectedIDs)
@@ -97,7 +114,6 @@ struct ContentView: View {
                 Text("将清理选中的 \(selectedIDs.count) 个 App 的 Caches/tmp（约 \(sizeText(selectedSize))），不能撤销。")
             }
             .onChange(of: model.groupID) { _, _ in
-                model.groupConfirmed = false
                 model.refreshSigning()
             }
             .task { model.loadApps() }
@@ -152,7 +168,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                     Text("尚未发现可访问的 App")
                         .font(.headline)
-                    Text("容器枚举可能被系统限制。可在下方诊断中手动添加已知容器路径。")
+                    Text("正在自动发现容器，或当前搜索条件下没有结果。可从右上角进入高级设置。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -209,16 +225,17 @@ struct ContentView: View {
             }
             .textCase(nil)
         } footer: {
-            Text("如果这里只显示清存自己，代表容器目录发现功能被系统限制，并不代表其他 App 没有缓存。")
+            Text("自动深度发现可能耗时数分钟；部分容器若无法获取系统元数据，将显示 Bundle ID 或容器编号。已排除 \(model.excludedPaths.count) 个 App。")
         }
     }
 
     private var signingWarning: some View {
         Section {
-            Label("尚未获得有效的专用 App Group 权限", systemImage: "exclamationmark.triangle")
+            Label("请确认专用 App Group", systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
-            Text("当前 IPA 里的示例标识不能自动获得签名授权。需要签名工具实际授予一个专用 App Group；未确认前禁止扫描与删除。")
+            Text("首次使用需在右上角「高级设置」确认签名授权的专用 App Group；以后相同组将记住确认。未确认前禁止扫描与删除。")
                 .font(.footnote)
+            Button("打开高级设置") { showingAdvancedSettings = true }
         }
     }
 
@@ -245,7 +262,10 @@ struct ContentView: View {
                             Text($0).tag($0)
                         }
                     }
-                    Toggle("确认该 App Group 专供本清理器使用", isOn: $model.groupConfirmed)
+                    Toggle("确认该 App Group 专供本清理器使用", isOn: Binding(
+                        get: { model.groupConfirmed },
+                        set: { model.setGroupConfirmed($0) }
+                    ))
                     Text("worse_query 会临时替换所选 App Group 的 Library/Caches。共享组可能影响其他 App；只有专用组才能勾选。")
                         .font(.caption)
                         .foregroundStyle(.orange)
@@ -270,6 +290,66 @@ struct ContentView: View {
         }
     }
 
+    private var advancedSettingsSheet: some View {
+        NavigationStack {
+            Form {
+                diagnosticsSection
+                Section {
+                    Text("此页面为高级诊断功能。首页默认自动深度发现 App 容器；组权限仅对已确认的专用 App Group 生效。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("高级设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { showingAdvancedSettings = false }
+                }
+            }
+        }
+    }
+
+    private var excludedAppsSheet: some View {
+        NavigationStack {
+            List {
+                let excluded = model.apps.filter { model.excludedPaths.contains($0.path) }
+                if excluded.isEmpty {
+                    ContentUnavailableView("暂无已排除 App", systemImage: "eye.slash",
+                                           description: Text("在首页勾选一个或多个 App，再点击左上角的排除选项。"))
+                } else {
+                    Section("已排除 App（\(excluded.count)）") {
+                        ForEach(excluded) { app in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(app.name).font(.subheadline.weight(.medium))
+                                    Text(app.bundleID).font(.caption2.monospaced())
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("取消排除") { model.restoreExcluded([app.path]) }
+                                    .font(.caption)
+                                    .buttonStyle(.bordered)
+                            }
+                        }
+                    }
+                    Section {
+                        Button("全部恢复") {
+                            model.restoreExcluded(model.excludedPaths)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("管理已排除 App")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { showingExcluded = false }
+                }
+            }
+        }
+    }
+
     private var selectionMenu: some View {
         Menu {
             Button("全选当前列表", systemImage: "checkmark.circle") {
@@ -278,10 +358,20 @@ struct ContentView: View {
             Button("取消全选", systemImage: "circle") {
                 selectedIDs.removeAll()
             }
+            Divider()
+            Button("排除选中的 \(selectedIDs.count) 个 App", systemImage: "eye.slash") {
+                let paths = Set(model.apps.filter { selectedIDs.contains($0.id) }.map(\.path))
+                model.exclude(paths)
+                selectedIDs.removeAll()
+            }
+            .disabled(selectedIDs.isEmpty)
+            Button("管理已排除 App（\(model.excludedPaths.count)）", systemImage: "list.bullet") {
+                showingExcluded = true
+            }
         } label: {
             Image(systemName: "checklist")
         }
-        .disabled(model.busy || filteredApps.isEmpty)
+        .disabled(model.busy)
     }
 
     private var sortMenu: some View {

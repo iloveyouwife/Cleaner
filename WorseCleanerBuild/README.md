@@ -31,7 +31,7 @@
 
 1. `project.yml` 中的 `PRODUCT_BUNDLE_IDENTIFIER`
 2. `WorseCleaner/WorseCleaner.entitlements` 中的 App Group
-3. `WorseCleaner/CleanerEngine.swift` 中的 `groupID`
+3. `WorseCleaner/CleanerEngine.swift` 中构建时示例 App Group 标识（运行时以实际签名授权为准）
 
 签名时 provisioning profile 必须允许相同的 App Group。仅重签名 IPA、但没有匹配的 App Group entitlement，**不能让漏洞工作**。
 诊断页面现在会读取安装后实际生效的 App Group entitlement，而不是盲信构建时的示例值；如果签名工具更换了组名，可在界面选择实际授权的组。
@@ -45,6 +45,10 @@ GitHub Actions 生成的是**未签名编译产物**，无法代替你的签名�
 - 可手动粘贴已知的容器 UUID 根路径，或者选择源于 worse_query 的慢速 pathleak inode 目录发现。后者最多尝试 500 万 inode，结果可能不完整，也可能耗时数分钟。
 - `worse_query` 只提供目录沙盒扩展，不保证所有文件都可写、也不等于越狱/root。
 - 界面按 3105 CleanerView 的搜索、排序、选择、摘要与批量清理结构移植，保留独立的权限诊断入口。
+- v3 会在获得容器读取权限后解析容器根目录里的 MCM 元数据，并尝试通过 LaunchServices 找到本地化的 App 名称。系统拒绝名称查询时会显示 Bundle ID 或容器 UUID，而不伪造名称。
+- 首次载入自动执行慢速 inode 深度发现（可能耗时数分钟）；对之前已经确认过的**同一个专用 App Group**，会自动继续扫描缓存。首次新组需要用户确认后手动触发扫描。
+- 可选择一个或多个 App 后「排除选中」，排除项会从首页列表和批量扫描/清理里跳过；可在右上角「管理已排除 App」恢复。排除信息保存在本地 App 设置中，按容器路径识别，App 重新安装导致 UUID 改变时需重新排除。
+- 「访问诊断与手动添加」隐藏在右上角「高级设置」，仅需首次绑定新的专用 App Group 时访问。
 - 扫描后 App 可能自行生成或改变缓存；清理结果以实际删除数量与二次扫描为准，若出现错误应停止。
 - 这里对 3105 的扫描逻辑增加了严格错误传递：深层目录不可读时扫描会失败；清理如出现失败项也不会被标为完全成功。
 - App 的 `Caches` 和 `tmp` 也可能包含离线数据、登录态或下载内容；请备份后测试，不要首先操作重要 App。
@@ -60,4 +64,4 @@ xcodegen generate
 xcodebuild -project WorseCleaner.xcodeproj -scheme WorseCleaner -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner` 分支提交时构建未签名 IPA。
+GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix`、`worse-query-cleaner-v3` 分支提交时构建未签名 IPA。
