@@ -73,6 +73,7 @@ GitHub Actions 生成的是**未签名编译产物**，无法代替你的签名�
 - v23 只收紧左／中／右三个弹出菜单的纵向排版：菜单行高从 44pt 调整至 38pt、行间距从 2pt 调为 0、容器上下及四边内边距从 6pt 改为 5pt。保留 v22 的 15pt 文字、11–12pt 图标视觉尺寸、6pt 图文间距和全部按钮功能，减少菜单空白、避免重新引入尺寸不统一。
 - v24 依据 iPhone 16 Pro／iOS 27.0.1 真机截图统一高级设置页面的字体层级：Picker、Toggle、手动添加、日志入口、状态与扫描操作均使用 17pt `.body` 主文字，副标题统一为系统 `.caption`，Form 单行最小高度 48pt，双行状态卡保留一致的自然高度。将「专用 App Group」简化成「App Group」，「确认是 Cleaner 专用组」简化成「Cleaner」，保留下面关于专用组风险的提示。模拟器截图使用测试专用的示例 App Group 以检查两行设置完整布局，且优先选择 iPhone 16 Pro；不修改真机权限和清理逻辑。
 - v25 根据真机跨页面对照修正 v24 字号失配：高级设置中状态、Picker、Toggle、扫描操作、手动输入/添加和诊断入口全部回归 15pt 系统 `.subheadline`（保留 12pt `.caption` 副标题），移除单行最小高度 48pt 的强制设置，恢复系统紧凑行高；首页「运行结果」改为复用「仅识别 Bundle ID」与「未识别数据容器」的同一个 13pt semibold 分组标题组件。保留 v24 的 App Group／Cleaner 简称、菜单图标布局及所有清理权限控制。
+- v26 复核 v25 模拟器布局后，发现高级设置的五个分组标题仍使用比首页明显偏大的系统默认标题样式；将「访问状态」「App Group 设置」「扫描工具」「手动添加」「诊断信息」全部直接复用首页 13pt semibold 分组标题组件。高级设置一级操作文字仍统一 15pt，副文字、按钮尺寸、清理与访问权限机制不变。
 - 首次载入自动执行慢速 inode 深度发现（可能耗时数分钟）；对之前已经确认过的**同一个专用 App Group**，会自动继续扫描缓存。首次新组需要用户确认后手动触发扫描。
 - 可选择一个或多个 App 后「排除选中」，排除项会从首页列表和批量扫描/清理里跳过；可在**左上角**「管理已排除 App」恢复。排除信息保存在本地 App 设置中，按容器路径识别，App 重新安装导致 UUID 改变时需重新排除。
 - 权限设置、手动添加与可展开的访问诊断位于右上角「高级设置」。
@@ -91,4 +92,4 @@ xcodegen generate
 xcodebuild -project WorseCleaner.xcodeproj -scheme WorseCleaner -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix` 及 `worse-query-cleaner-v3` 至 `worse-query-cleaner-v25` 分支提交时构建未签名 IPA。
+GitHub Actions: `.github/workflows/worse-cleaner-ipa.yml` 在 `worse-query-cleaner`、`worse-query-cleaner-fix` 及 `worse-query-cleaner-v3` 至 `worse-query-cleaner-v26` 分支提交时构建未签名 IPA。

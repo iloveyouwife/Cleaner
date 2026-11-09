@@ -549,7 +549,7 @@ struct ContentView: View {
     private var advancedSettingsSheet: some View {
         NavigationStack {
             Form {
-                Section("访问状态") {
+                Section {
                     HStack(spacing: 8) {
                         settingsIcon("checkmark.shield", color: .accentColor)
                         VStack(alignment: .leading, spacing: 3) {
@@ -572,6 +572,8 @@ struct ContentView: View {
                                             .opacity(0.10), in: Capsule())
                     }
                     .padding(.vertical, 5)
+                } header: {
+                    appSectionHeading("访问状态")
                 }
 
                 Section {
@@ -599,7 +601,7 @@ struct ContentView: View {
                         .disabled(model.busy)
                     }
                 } header: {
-                    Text("App Group 设置")
+                    appSectionHeading("App Group 设置")
                 } footer: {
                     Text("只确认 Cleaner 独占的 App Group。清理时会临时替换该组缓存目录；共享组可能影响其他 App。")
                         .font(.footnote)
@@ -630,7 +632,7 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .disabled(model.busy)
                 } header: {
-                    Text("扫描工具")
+                    appSectionHeading("扫描工具")
                 } footer: {
                     Text("首页已自动执行发现；此处用于重试，结果可能不完整。")
                 }
@@ -652,7 +654,7 @@ struct ContentView: View {
                     }
                     .disabled(manualPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
                 } header: {
-                    Text("手动添加")
+                    appSectionHeading("手动添加")
                 } footer: {
                     Text("只添加来源明确的容器路径；添加后仍需扫描验证权限。")
                 }
@@ -716,7 +718,7 @@ struct ContentView: View {
                         }
                     }
                 } header: {
-                    Text("诊断信息")
+                    appSectionHeading("诊断信息")
                 } footer: {
                     Text("日志用于排查权限问题；系统拒绝元数据访问时可能无法识别 App 名称。")
                 }

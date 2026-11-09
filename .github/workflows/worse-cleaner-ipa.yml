@@ -28,6 +28,7 @@ on:
       - worse-query-cleaner-v23
       - worse-query-cleaner-v24
       - worse-query-cleaner-v25
+      - worse-query-cleaner-v26
   workflow_dispatch:
 
 permissions:
