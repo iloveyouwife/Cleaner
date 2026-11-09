@@ -11,13 +11,14 @@ enum CleanerLayout {
 struct CleanerSettingsSymbol: View {
     let name: String
     var tint: Color = .primary
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 22
 
     var body: some View {
         Image(systemName: name)
             .font(.body.weight(.medium))
             .foregroundStyle(tint)
-            .frame(width: CleanerLayout.settingsIconColumn,
-                   height: CleanerLayout.settingsIconColumn)
+            .frame(width: iconSize,
+                   height: iconSize)
             .accessibilityHidden(true)
     }
 }
@@ -38,6 +39,7 @@ struct CleanerStatusPill: View {
 
 
 struct CleanerSectionHeading: View {
+    @ScaledMetric(relativeTo: .footnote) private var disclosureSize: CGFloat = 18
     let title: String
     let count: Int?
     let expanded: Bool?
@@ -55,7 +57,7 @@ struct CleanerSectionHeading: View {
             if let expanded {
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
                     .font(.footnote.weight(.semibold))
-                    .frame(width: 18, height: 18)
+                    .frame(width: disclosureSize, height: disclosureSize)
                     .accessibilityHidden(true)
             }
         }
@@ -68,6 +70,7 @@ struct CleanerSectionHeading: View {
 }
 
 struct CleanerEmptyState: View {
+    @ScaledMetric(relativeTo: .title3) private var symbolSize: CGFloat = 30
     let symbol: String
     let title: String
     let message: String
@@ -77,7 +80,7 @@ struct CleanerEmptyState: View {
             Image(systemName: symbol)
                 .font(.title3)
                 .foregroundStyle(.secondary)
-                .frame(width: 30, height: 30)
+                .frame(width: symbolSize, height: symbolSize)
 
             Text(title)
                 .font(.body.weight(.medium))
@@ -97,6 +100,9 @@ struct CleanerEmptyState: View {
 }
 
 struct CleanerAppRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .title3) private var selectionSize: CGFloat = 26
+    @ScaledMetric(relativeTo: .body) private var rowVerticalInset: CGFloat = 6
     let app: WCTarget
     let usage: LimitedCleanerUsage?
     let selected: Bool
@@ -119,6 +125,13 @@ struct CleanerAppRow: View {
         return ByteCountFormatter.string(fromByteCount: usage.totalBytes, countStyle: .file)
     }
 
+    private var cacheLabel: some View {
+        Text(cacheSize)
+            .font(.footnote.monospacedDigit())
+            .foregroundStyle(usage == nil ? Color(uiColor: .tertiaryLabel) : Color.secondary)
+            .lineLimit(1)
+    }
+
     var body: some View {
         Button(action: onToggle) {
             HStack(spacing: 12) {
@@ -131,25 +144,27 @@ struct CleanerAppRow: View {
                     Text(detail)
                         .font(.footnote.monospaced())
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                         .truncationMode(.middle)
+                    if dynamicTypeSize.isAccessibilitySize {
+                        cacheLabel
+                    }
                 }
                 .layoutPriority(1)
 
                 Spacer(minLength: 8)
 
-                Text(cacheSize)
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(usage == nil ? .tertiary : .secondary)
-                    .lineLimit(1)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    cacheLabel
+                }
 
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
                     .foregroundStyle(selected ? Color.accentColor : Color.secondary)
-                    .frame(width: 26, height: 26)
+                    .frame(width: selectionSize, height: selectionSize)
                     .accessibilityHidden(true)
             }
-            .padding(.vertical, CleanerLayout.listRowVerticalInset)
+            .padding(.vertical, rowVerticalInset)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -158,5 +173,18 @@ struct CleanerAppRow: View {
         .accessibilityLabel(displayTitle + "，缓存 " + cacheSize)
         .accessibilityValue(selected ? "已选择" : "未选择")
         .accessibilityHint("双击切换选择状态")
+    }
+}
+
+/// Matches the v44 symbol at default text size, while scaling with Dynamic Type.
+struct CleanerContentSymbol: View {
+    let name: String
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 22
+
+    var body: some View {
+        Image(systemName: name)
+            .font(.body)
+            .frame(width: iconSize, height: iconSize)
+            .accessibilityHidden(true)
     }
 }
