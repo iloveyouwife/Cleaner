@@ -148,33 +148,34 @@ struct ContentView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     selectionMenu
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    // One toolbar item prevents the system from inserting
-                    // extra inter-item gaps between these three controls.
-                    HStack(spacing: 0) {
-                        sortMenu
-                        Button { model.loadApps() } label: {
-                            toolbarIcon("arrow.clockwise")
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
+                // The system draws the glass capsule on ToolbarItem itself,
+                // outside the HStack's opacity. Remove the complete item
+                // while the right-hand overlay is visible; restore it when
+                // the overlay is dismissed.
+                if !showingSortPopup && !showingMorePopup {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        // One toolbar item keeps the three buttons aligned.
+                        HStack(spacing: 0) {
+                            sortMenu
+                            Button { model.loadApps() } label: {
+                                toolbarIcon("arrow.clockwise")
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .disabled(model.busy)
+                            .accessibilityLabel("刷新 App 列表")
+                            Button {
+                                showingSelectionPopup = false
+                                showingSortPopup = false
+                                showingMorePopup.toggle()
+                            } label: {
+                                toolbarIcon("ellipsis.circle")
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("更多选项")
                         }
-                        .disabled(model.busy)
-                        .accessibilityLabel("刷新 App 列表")
-                        Button {
-                            showingSelectionPopup = false
-                            showingSortPopup = false
-                            showingMorePopup.toggle()
-                        } label: {
-                            toolbarIcon("ellipsis.circle")
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("更多选项")
                     }
-                    // The custom menu is narrower than the system toolbar
-                    // capsule. Hide that capsule while a right-side menu is
-                    // visible so it cannot protrude behind the menu's edge.
-                    .opacity(showingSortPopup || showingMorePopup ? 0 : 1)
                 }
             }
             .sheet(isPresented: $showingAdvancedSettings) { advancedSettingsSheet }
