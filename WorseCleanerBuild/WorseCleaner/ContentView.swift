@@ -388,6 +388,6 @@ struct ContentView: View {
 
     private func sizeText(_ bytes: Int64) -> String {
         if bytes == 0 { return "0 KB" }
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
