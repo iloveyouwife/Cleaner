@@ -739,6 +739,10 @@ struct ContentView: View {
             .font(.system(size: 17, weight: .medium))
             .foregroundStyle(color)
             .frame(width: 20, height: 20, alignment: .center)
+            // The document+search glyph has a visually shorter right edge.
+            // Nudge only this symbol; preserve the 8pt HStack gap and all
+            // text positions from v27.
+            .offset(x: name == "doc.text.magnifyingglass" ? 2 : 0)
             .accessibilityHidden(true)
     }
 
@@ -832,7 +836,7 @@ struct ContentView: View {
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 3)
-        .frame(width: 250)
+        .frame(width: UIScreen.main.bounds.width / 2)
         .presentationCompactAdaptation(.popover)
     }
 
@@ -858,7 +862,7 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.primary)
-            .frame(minHeight: 36)
+            .frame(minHeight: 22)
             .padding(.horizontal, 10)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
