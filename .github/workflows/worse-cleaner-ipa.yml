@@ -20,6 +20,7 @@ on:
       - worse-query-cleaner-v15
       - worse-query-cleaner-v16
       - worse-query-cleaner-v17
+      - worse-query-cleaner-v18
   workflow_dispatch:
 
 permissions:
@@ -97,6 +98,14 @@ jobs:
           sleep 3
           mkdir -p ui-screenshots
           xcrun simctl io "$simulator_id" screenshot ui-screenshots/advanced-settings.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureSelectionPopup
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/selection-popup.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureMorePopup
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/more-popup.png
 
       - name: Upload layout screenshot
         if: always()

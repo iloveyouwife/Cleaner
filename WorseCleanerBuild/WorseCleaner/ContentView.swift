@@ -22,6 +22,8 @@ struct ContentView: View {
     @State private var showingAdvancedSettings = false
     @State private var showingExcluded = false
     @State private var confirmingOnlineNames = false
+    @State private var showingSelectionPopup = false
+    @State private var showingMorePopup = false
     @State private var showingBundleIDOnly = false
     @State private var showingUnidentifiedContainers = false
 
@@ -143,29 +145,38 @@ struct ContentView: View {
                     }
                     .disabled(model.busy)
                     .accessibilityLabel("刷新 App 列表")
-                    Menu {
-                        Button {
-                            confirmingOnlineNames = true
-                        } label: {
-                            menuItem("联网补全 App 名称", icon: "magnifyingglass")
-                        }
-                        .disabled(model.busy)
-                        Button {
-                            showingAdvancedSettings = true
-                        } label: {
-                            menuItem("高级设置", icon: "gearshape")
-                        }
+                    Button {
+                        showingSelectionPopup = false
+                        showingMorePopup.toggle()
                     } label: {
                         toolbarIcon("ellipsis.circle")
                     }
                     .accessibilityLabel("更多选项")
+                    .popover(isPresented: $showingMorePopup, attachmentAnchor: .rect(.bounds),
+                             arrowEdge: .top) {
+                        compactPopup {
+                            compactPopupAction("补全App名称", icon: "magnifyingglass",
+                                               enabled: !model.busy) {
+                                showingMorePopup = false
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                    confirmingOnlineNames = true
+                                }
+                            }
+                            compactPopupAction("高级设置", icon: "gearshape") {
+                                showingMorePopup = false
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                    showingAdvancedSettings = true
+                                }
+                            }
+                        }
+                    }
                 }
             }
             .sheet(isPresented: $showingAdvancedSettings) { advancedSettingsSheet }
             .sheet(isPresented: $showingExcluded) { excludedAppsSheet }
-            .confirmationDialog("联网补全 App 名称", isPresented: $confirmingOnlineNames,
+            .confirmationDialog("补全App名称", isPresented: $confirmingOnlineNames,
                                 titleVisibility: .visible) {
-                Button("联网补全") { model.completeMissingNamesOnline() }
+                Button("补全App名称") { model.completeMissingNamesOnline() }
                 Button("取消", role: .cancel) {}
             } message: {
                 Text("将向 Apple 商店发送未识别的 Bundle ID 查询名称，不上传缓存文件；每次最多 80 个。仅适用于已知 Bundle ID 的项目。")
@@ -190,8 +201,17 @@ struct ContentView: View {
                 #if targetEnvironment(simulator)
                 // Simulator-only layout QA. Keep the production discovery path
                 // untouched and avoid privileged scans during UI screenshots.
-                if ProcessInfo.processInfo.arguments.contains("-captureAdvancedSettings") {
+                let arguments = ProcessInfo.processInfo.arguments
+                if arguments.contains("-captureAdvancedSettings") {
                     showingAdvancedSettings = true
+                } else if arguments.contains("-captureSelectionPopup") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        showingSelectionPopup = true
+                    }
+                } else if arguments.contains("-captureMorePopup") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        showingMorePopup = true
+                    }
                 } else {
                     model.loadApps()
                 }
@@ -727,39 +747,80 @@ struct ContentView: View {
     }
 
     private var selectionMenu: some View {
-        Menu {
-            Button {
-                selectedIDs.formUnion(displayedApps.map(\.id))
-            } label: {
-                menuItem("全选当前列表", icon: "checkmark.circle")
-            }
-            if !selectedIDs.isEmpty {
-                Button {
-                    selectedIDs.removeAll()
-                } label: {
-                    menuItem("取消全选", icon: "circle")
-                }
-                Button {
-                    let paths = Set(model.apps.filter { selectedIDs.contains($0.id) }.map(\.path))
-                    model.exclude(paths)
-                    selectedIDs.removeAll()
-                } label: {
-                    menuItem("排除选中的 \(selectedIDs.count) 个 App", icon: "eye.slash")
-                }
-            }
-            Button {
-                showingExcluded = true
-            } label: {
-                menuItem(model.excludedPaths.isEmpty
-                         ? "管理已排除 App"
-                         : "管理已排除 App（\(model.excludedPaths.count)）",
-                         icon: "list.bullet")
-            }
+        Button {
+            showingMorePopup = false
+            showingSelectionPopup.toggle()
         } label: {
             toolbarIcon("checklist")
         }
         .accessibilityLabel("选择操作")
         .disabled(model.busy)
+        .popover(isPresented: $showingSelectionPopup, attachmentAnchor: .rect(.bounds),
+                 arrowEdge: .top) {
+            compactPopup {
+                compactPopupAction("全选当前列表", icon: "checkmark.circle") {
+                    selectedIDs.formUnion(displayedApps.map(\.id))
+                    showingSelectionPopup = false
+                }
+                if !selectedIDs.isEmpty {
+                    compactPopupAction("取消全选", icon: "circle") {
+                        selectedIDs.removeAll()
+                        showingSelectionPopup = false
+                    }
+                    compactPopupAction("排除选中的 \(selectedIDs.count) 个 App", icon: "eye.slash") {
+                        let paths = Set(model.apps.filter { selectedIDs.contains($0.id) }.map(\.path))
+                        model.exclude(paths)
+                        selectedIDs.removeAll()
+                        showingSelectionPopup = false
+                    }
+                }
+                compactPopupAction(model.excludedPaths.isEmpty
+                                   ? "管理已排除 App"
+                                   : "管理已排除 App（\(model.excludedPaths.count)）",
+                                   icon: "list.bullet") {
+                    showingSelectionPopup = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        showingExcluded = true
+                    }
+                }
+            }
+        }
+    }
+
+    /// The native Menu reserves an OS-controlled icon column. Both compact
+    /// popovers use the same fixed symbol slot, typography, and eight-point
+    /// spacing so their visual proportions remain identical on iPhone.
+    private func compactPopup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            content()
+        }
+        .padding(8)
+        .frame(width: 250)
+        .presentationCompactAdaptation(.popover)
+    }
+
+    private func compactPopupAction(_ title: String, icon: String,
+                                    enabled: Bool = true,
+                                    action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .regular))
+                    .frame(width: 20, height: 20, alignment: .center)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.system(size: 17, weight: .regular))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.primary)
+            .frame(height: 44)
+            .padding(.horizontal, 10)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(CompactPopupButtonStyle())
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
     }
 
     private var sortMenu: some View {
@@ -780,9 +841,7 @@ struct ContentView: View {
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
-    /// One optical slot per symbol prevents different intrinsic symbol widths
-    /// from shifting toolbar and row alignment. Native menus still apply the
-    /// system's accessibility scaling to their presented icons.
+    /// One optical slot per toolbar symbol keeps the controls aligned.
     private func toolbarIcon(_ symbol: String) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 19, weight: .medium))
@@ -797,19 +856,17 @@ struct ContentView: View {
             .accessibilityHidden(true)
     }
 
-    private func menuItem(_ title: String, icon: String) -> some View {
-        Label {
-            Text(title)
-        } icon: {
-            Image(systemName: icon)
-                .font(.system(size: 17, weight: .regular))
-                .frame(width: 22, height: 22, alignment: .center)
-        }
-    }
-
     private func isInternalSystemService(_ bundleID: String) -> Bool {
         // These are system helper services, not independently launchable apps.
         // They stay hidden rather than being offered as cache-cleaning targets.
         Self.hiddenServiceIDs.contains(bundleID)
+    }
+}
+
+private struct CompactPopupButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? Color(uiColor: .tertiarySystemFill) : .clear,
+                        in: RoundedRectangle(cornerRadius: 10))
     }
 }
