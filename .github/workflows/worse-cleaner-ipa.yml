@@ -1,47 +1,19 @@
-name: Build WorseCleaner unsigned IPA
+name: Build Cleaner unsigned IPA
 
 on:
   push:
     branches:
       - worse-query-cleaner
       - worse-query-cleaner-fix
-      - worse-query-cleaner-v3
-      - worse-query-cleaner-v4
-      - worse-query-cleaner-v5
-      - worse-query-cleaner-v6
-      - worse-query-cleaner-v7
-      - worse-query-cleaner-v8
-      - worse-query-cleaner-v9
-      - worse-query-cleaner-v10
-      - worse-query-cleaner-v11
-      - worse-query-cleaner-v12
-      - worse-query-cleaner-v13
-      - worse-query-cleaner-v14
-      - worse-query-cleaner-v15
-      - worse-query-cleaner-v16
-      - worse-query-cleaner-v17
-      - worse-query-cleaner-v18
-      - worse-query-cleaner-v19
-      - worse-query-cleaner-v20
-      - worse-query-cleaner-v21
-      - worse-query-cleaner-v22
-      - worse-query-cleaner-v23
-      - worse-query-cleaner-v24
-      - worse-query-cleaner-v25
-      - worse-query-cleaner-v26
-      - worse-query-cleaner-v27
-      - worse-query-cleaner-v44
-      - worse-query-cleaner-v45
-      - worse-query-cleaner-v46
-      - worse-query-cleaner-v47
-      - worse-query-cleaner-v48
-      - worse-query-cleaner-v49
-      - worse-query-cleaner-v51
-      - worse-query-cleaner-v52
+      - 'worse-query-cleaner-v*'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: cleaner-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -95,9 +67,48 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WorseCleaner-iOS27-unsigned
+          name: Cleaner-unsigned-ipa
           path: WorseCleaner-iOS27-unsigned.ipa
           if-no-files-found: error
+
+      # Only numbered Cleaner release branches publish. An existing version
+      # remains immutable: bump both version fields for the next release.
+      - name: Publish Cleaner release
+        if: startsWith(github.ref_name, 'worse-query-cleaner-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch_number="${GITHUB_REF_NAME##*-v}"
+          if [[ ! "$branch_number" =~ ^[0-9]+$ ]]; then
+            echo "Not a numbered release branch."
+            exit 1
+          fi
+          if (( 10#$branch_number < 52 )); then
+            echo "Historical branches do not publish releases."
+            exit 0
+          fi
+          version="$(sed -n 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*//p' WorseCleanerBuild/project.yml | head -n 1)"
+          build="$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*//p' WorseCleanerBuild/project.yml | head -n 1)"
+          test "$version" = "0.${branch_number}.0"
+          test "$build" = "$branch_number"
+          tag="v${version}"
+          if ! command -v gh >/dev/null 2>&1; then
+            brew install gh
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; leave its tagged sources and IPA unchanged."
+            exit 0
+          fi
+          asset="Cleaner-v${version}-unsigned.ipa"
+          cp WorseCleaner-iOS27-unsigned.ipa "$asset"
+          gh release create "$tag" "$asset" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Cleaner v${version}" \
+            --target "$GITHUB_SHA" \
+            --notes-file WorseCleanerBuild/RELEASE_NOTES.md \
+            --latest
+          echo "Released $tag" >> "$GITHUB_STEP_SUMMARY"
 
       # Required simulator UI regression checks. Screenshot fixtures bypass
       # discovery only on the simulator, never signed-device safeguards.
