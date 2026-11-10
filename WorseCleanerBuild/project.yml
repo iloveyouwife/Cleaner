@@ -1,5 +1,6 @@
 name: WorseCleaner
 options:
+  developmentLanguage: zh-Hans
   bundleIdPrefix: com.example
   deploymentTarget:
     iOS: "26.0"

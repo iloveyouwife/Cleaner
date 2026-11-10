@@ -57,6 +57,12 @@ jobs:
         run: |
           set -euo pipefail
           app="DerivedData/Build/Products/Release-iphoneos/WorseCleaner.app"
+          echo "Bundled localizations:"
+          find "$app" -maxdepth 2 -name InfoPlist.strings -print
+          echo "CFBundleDevelopmentRegion:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDevelopmentRegion' "$app/Info.plist"
+          echo "CFBundleLocalizations:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleLocalizations' "$app/Info.plist"
           test -f "$app/zh-Hans.lproj/InfoPlist.strings"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDevelopmentRegion' "$app/Info.plist")" = "zh-Hans"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleLocalizations:0' "$app/Info.plist")" = "zh-Hans"
