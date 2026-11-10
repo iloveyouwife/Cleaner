@@ -49,9 +49,9 @@ enum WCFailure: LocalizedError {
         case .unavailable(let code):
             return "worse_query 未能取得权限（返回码 \(code)）。不执行扫描或删除。"
         case .inaccessible(let item, let code):
-            return "\(item) 无法读取（errno=\(code)）；本次操作已停止，不能按 0 KB 处理。"
+            return "\(item) 无法读取（errno=\(code)）。本次操作已停止，不能按 0 KB 处理。"
         case .noCacheDirectories:
-            return "目标容器的 Library/Caches 与 tmp 都不存在；不执行删除。"
+            return "目标容器的 Library/Caches 与 tmp 都不存在，不执行删除。"
         }
     }
 }

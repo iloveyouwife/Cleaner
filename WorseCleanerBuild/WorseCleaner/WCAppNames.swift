@@ -186,7 +186,7 @@ enum WCAppNames {
             worse_query_release(scopedLease)
         }
         let lsInfo = ls?.diagnostics ?? "LaunchServices：数据库缺失、暂不可读或格式未通过路径校验，已使用原有识别回退。"
-        let info = lsInfo + "\n安装包回退：\(preferIndex ? "名称索引覆盖充分，跳过重复读取" : "已启用")；安装目录 \(discoveredBundleRoots.count)，单目录授权 \(perRootGrants)，读到 \(readableApps) 份 Info.plist。"
+        let info = lsInfo + "\n安装包回退：\(preferIndex ? "名称索引覆盖充分，跳过重复读取" : "已启用")，安装目录 \(discoveredBundleRoots.count)，单目录授权 \(perRootGrants)，读到 \(readableApps) 份 Info.plist。"
         return WCAppCatalog(names: names, containers: ls?.containers ?? [:],
                             diagnostics: info)
     }

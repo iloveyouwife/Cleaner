@@ -87,7 +87,7 @@ final class WorseCleanerModel: ObservableObject {
                 let onlySelf = apps.count == 1 &&
                     apps.first?.bundleID == Bundle.main.bundleIdentifier
                 if onlySelf {
-                    self.status = "仅发现本工具自己。系统限制了 MCM/LaunchServices 枚举；这不是全部已安装 App。可手动添加已知 UUID 容器。"
+                    self.status = "仅发现本工具自己。系统限制了 MCM/LaunchServices 枚举。这不是全部已安装 App。可手动添加已知 UUID 容器。"
                 } else {
                     self.status = apps.isEmpty
                         ? (message ?? "没有发现 App 容器，可手动添加已知 UUID 路径。")
@@ -105,7 +105,7 @@ final class WorseCleanerModel: ObservableObject {
             if !apps.contains(where: { $0.path == target.path }) {
                 apps.insert(target, at: 0)
             }
-            status = "已添加容器；尚未验证访问权限，请点击扫描。"
+            status = "已添加容器，尚未验证访问权限，请点击扫描。"
         } catch {
             status = error.localizedDescription
         }
@@ -117,8 +117,8 @@ final class WorseCleanerModel: ObservableObject {
         discoveryPercent = 0
         let forceFull = !automaticallyScan
         status = forceFull
-            ? "正在完整发现 App 与扩展容器；首次全量扫描可能较久。"
-            : "正在发现 App 与扩展容器；已有索引时仅扫描新增 inode。"
+            ? "正在完整发现 App 与扩展容器，首次全量扫描可能较久。"
+            : "正在发现 App 与扩展容器，已有索引时仅扫描新增 inode。"
         queue.async {
             let result = Result {
                 try WCPathDiscovery.enumerateRoots(forceFull: forceFull) { done, total in
@@ -148,7 +148,7 @@ final class WorseCleanerModel: ObservableObject {
                     self.apps.append(contentsOf: found.filter {
                         !existing.contains(Self.pathIdentity($0.path))
                     })
-                    self.status = "\(result.incremental ? "增量" : "完整")扫描 \(result.scannedInodes) 个 inode，发现 \(found.count - result.extensionCount) 个 App、\(result.extensionCount) 个扩展容器；当前列表 \(self.apps.count) 项。"
+                    self.status = "\(result.incremental ? "增量" : "完整")扫描 \(result.scannedInodes) 个 inode，发现 \(found.count - result.extensionCount) 个 App、\(result.extensionCount) 个扩展容器。当前列表 \(self.apps.count) 项。"
                     if !result.completeBound {
                         self.status += " 扫描结束时 inode 仍在增长或无法复核范围，列表可能不完整。"
                     }
@@ -219,7 +219,7 @@ final class WorseCleanerModel: ObservableObject {
                 let access = metadataErrors.sorted { $0.value > $1.value }.prefix(2)
                     .map { "errno \($0.key): \($0.value)" }.joined(separator: "，")
                 let permissionHint = metadataErrors[EPERM, default: 0] > 0
-                    ? " 元数据受系统权限限制；详见高级设置中的访问诊断。" : ""
+                    ? " 元数据受系统权限限制。详见高级设置中的访问诊断。" : ""
                 self.status = "扫描完成：\(results.count)/\(targets.count) 个容器可访问，" +
                     "识别名称 \(namedCount) 个，识别 Bundle ID \(readableButUnnamed) 个。" +
                     (failures == 0 ? "" : " 扫描失败 \(failures) 个。") + permissionHint
@@ -301,7 +301,7 @@ final class WorseCleanerModel: ObservableObject {
                 for id in failedIDs { self.usage.removeValue(forKey: id) }
                 for (key, result) in latest { self.usage[key] = result }
                 self.busy = false
-                self.status = "已删除 \(removed) 项，释放约 \(CleanerSizeText.bytes(freed))；失败或未验证 \(failures) 项。"
+                self.status = "已删除 \(removed) 项，释放约 \(CleanerSizeText.bytes(freed))。失败或未验证 \(failures) 项。"
             }
         }
     }

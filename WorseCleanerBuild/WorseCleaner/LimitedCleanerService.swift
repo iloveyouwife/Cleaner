@@ -39,7 +39,7 @@ enum LimitedCleanerError: LocalizedError, Equatable {
         case .unsafeContainerRoot:
             return "无法安全打开 App 容器根目录。"
         case .inaccessible(let path, let code):
-            return "缓存内部的 \(path) 不可读取（errno=\(code)）；不能将它计为 0 KB。"
+            return "缓存内部的 \(path) 不可读取（errno=\(code)）。不能将它计为 0 KB。"
         }
     }
 }

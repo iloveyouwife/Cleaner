@@ -216,7 +216,7 @@ struct ContentView: View {
                 Button("补全App名称") { model.completeMissingNamesOnline() }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("将向 Apple 商店发送未识别的 Bundle ID 查询名称，不上传缓存文件；每次最多 80 个。仅适用于已知 Bundle ID 的项目。")
+                Text("将向 Apple 商店发送未识别的 Bundle ID 查询名称，不上传缓存文件。每次最多 80 个。仅适用于已知 Bundle ID 的项目。")
             }
             .alert("确认清理缓存", isPresented: $confirmingClean) {
                 Button("确认删除", role: .destructive) {
@@ -346,7 +346,7 @@ struct ContentView: View {
             .foregroundColor(Color(uiColor: .secondaryLabel))
             .textCase(nil)
         } footer: {
-            Text("仅清理所选项目的 Caches/tmp；保留 Documents 和容器本身。")
+            Text("仅清理所选项目的 Caches/tmp，保留 Documents 和容器本身。")
         }
     }
 
@@ -412,7 +412,7 @@ struct ContentView: View {
             .accessibilityHint(showingBundleIDOnly ? "双击收起此分组" : "双击展开此分组")
         } footer: {
             if showingBundleIDOnly || !appliedSearchText.isEmpty {
-                Text("这些项目有 Bundle ID，但系统未返回名称；可尝试联网补全。")
+                Text("这些项目有 Bundle ID，但系统未返回名称，可尝试联网补全。")
             }
         }
     }

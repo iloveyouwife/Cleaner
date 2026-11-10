@@ -66,7 +66,7 @@ struct CleanerAdvancedSettingsView: View {
                 } header: {
                     CleanerSectionHeading("App Group 设置")
                 } footer: {
-                    Text("只确认 Cleaner 独占的 App Group。清理时会临时替换该组缓存目录；共享组可能影响其他 App。")
+                    Text("只确认 Cleaner 独占的 App Group。清理时会临时替换该组缓存目录。共享组可能影响其他 App。")
                         .font(.footnote)
                 }
 
@@ -85,7 +85,7 @@ struct CleanerAdvancedSettingsView: View {
                 } header: {
                     CleanerSectionHeading("扫描工具")
                 } footer: {
-                    Text("首页已自动执行发现；此处用于重试，结果可能不完整。")
+                    Text("首页已自动执行发现，此处用于重试，结果可能不完整。")
                 }
 
                 Section {
@@ -106,7 +106,7 @@ struct CleanerAdvancedSettingsView: View {
                 } header: {
                     CleanerSectionHeading("手动添加")
                 } footer: {
-                    Text("只添加来源明确的容器路径；添加后仍需扫描验证权限。")
+                    Text("只添加来源明确的容器路径，添加后仍需扫描验证权限。")
                 }
 
                 Section {
@@ -166,7 +166,7 @@ struct CleanerAdvancedSettingsView: View {
                 } header: {
                     CleanerSectionHeading("诊断信息")
                 } footer: {
-                    Text("日志用于排查权限问题；系统拒绝元数据访问时可能无法识别 App 名称。")
+                    Text("日志用于排查权限问题。系统拒绝元数据访问时可能无法识别 App 名称。")
                 }
             }
             .scrollDismissesKeyboard(.interactively)
