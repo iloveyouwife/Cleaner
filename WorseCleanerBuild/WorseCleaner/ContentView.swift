@@ -140,13 +140,13 @@ struct ContentView: View {
                         Button {
                             confirmingOnlineNames = true
                         } label: {
-                            Label("补全 App 名称", systemImage: "magnifyingglass")
+                            Label("补全 App 名称", systemImage: "magnifyingglass.circle")
                         }
                         .disabled(model.busy)
                         Button {
                             showingAdvancedSettings = true
                         } label: {
-                            Label("高级设置", systemImage: "gearshape")
+                            Label("高级设置", systemImage: "gearshape.circle")
                         }
                     } label: {
                         CleanerToolbarSymbol(name: "ellipsis.circle")
