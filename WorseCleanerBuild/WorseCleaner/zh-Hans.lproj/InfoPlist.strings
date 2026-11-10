@@ -1,0 +1,3 @@
+/* Cleaner currently has a Simplified Chinese interface. */
+CFBundleDisplayName = "Cleaner";
+CFBundleName = "Cleaner";

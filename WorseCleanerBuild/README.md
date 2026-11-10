@@ -2,6 +2,8 @@
 
 本目录是当前 **Cleaner** App 的源码。桌面显示名称为 `Cleaner`；Xcode target 与部分内部类型仍沿用历史名称 `WorseCleaner`，不影响应用名称。
 
+当前界面采用简体中文文案，App bundle 正式声明 `zh-Hans` 为开发与支持语言，并包含 `zh-Hans.lproj/InfoPlist.strings`；原生复制、查询等文字选择菜单由 iOS 决定最终显示语言，仍可能受设备／单 App 语言设置影响。
+
 ## 目前的实现
 
 1. **容器发现：** 先尝试系统可用的 MCM / LaunchServices 只读查询，再使用动态 inode 上限发现普通 App 和 PluginKit 扩展容器；采用最多六线程分块扫描及本地增量索引，温度升高时减少工作线程，手动深度发现会执行完整重扫。未将内部守护进程和系统数据容器纳入清理范围。结果仍不保证绝对完整。

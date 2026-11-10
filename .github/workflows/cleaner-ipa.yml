@@ -53,6 +53,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      - name: Verify Chinese app localization
+        run: |
+          set -euo pipefail
+          app="DerivedData/Build/Products/Release-iphoneos/WorseCleaner.app"
+          test -f "$app/zh-Hans.lproj/InfoPlist.strings"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDevelopmentRegion' "$app/Info.plist")" = "zh-Hans"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleLocalizations:0' "$app/Info.plist")" = "zh-Hans"
+
       - name: Package IPA
         run: |
           set -euo pipefail
