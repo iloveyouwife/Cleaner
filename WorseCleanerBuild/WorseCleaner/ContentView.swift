@@ -388,38 +388,18 @@ struct ContentView: View {
     }
 
     private var storageCapacityRow: some View {
-        Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("本机储存")
-                        .foregroundStyle(.secondary)
-                    deviceStorageCapacityText
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+        LabeledContent {
+            if let deviceStorage {
+                Text("可用 \(sizeText(deviceStorage.available)) / 总计 \(sizeText(deviceStorage.total))")
             } else {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("本机储存")
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    deviceStorageCapacityText
-                        .multilineTextAlignment(.trailing)
-                }
+                Text("容量读取中…")
             }
+        } label: {
+            Text("本机储存")
         }
         .font(.footnote)
+        .foregroundStyle(.secondary)
         .monospacedDigit()
-    }
-
-    private var deviceStorageCapacityText: Text {
-        guard let deviceStorage else {
-            return Text("容量读取中…").foregroundColor(.secondary)
-        }
-        return Text("可用 ").foregroundColor(.secondary)
-            + Text(sizeText(deviceStorage.available))
-                .fontWeight(.semibold)
-                .foregroundColor(.primary)
-            + Text(" / 总计 \(sizeText(deviceStorage.total))")
-                .foregroundColor(.secondary)
     }
 
     private func refreshDeviceStorage() {
