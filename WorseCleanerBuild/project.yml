@@ -1,0 +1,56 @@
+name: WorseCleaner
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "26.0"
+  xcodeVersion: "27.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  WorseCleaner:
+    type: application
+    platform: iOS
+    sources:
+      - path: WorseCleaner
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.worsecleaner
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: WorseCleaner/Info.plist
+        CODE_SIGN_ENTITLEMENTS: WorseCleaner/WorseCleaner.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: WorseCleaner/WorseCleaner-Bridging-Header.h
+        INFOPLIST_KEY_CFBundleDisplayName: Cleaner
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: 0.52.0
+        CURRENT_PROJECT_VERSION: 52
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lobjc"
+          - "-framework"
+          - "Security"
+
+  CleanerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: CleanerUITests
+    dependencies:
+      - target: WorseCleaner
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.worsecleaner.uitests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  WorseCleaner:
+    build:
+      targets:
+        WorseCleaner: all
+        CleanerUITests: [test]
+    test:
+      targets:
+        - CleanerUITests

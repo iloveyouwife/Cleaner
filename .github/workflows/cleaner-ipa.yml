@@ -1,0 +1,208 @@
+name: Build Cleaner unsigned IPA
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cleaner-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select and inspect Xcode 27.0
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
+          xcode_version="$(xcodebuild -version)"
+          sdk_list="$(xcodebuild -showsdks)"
+          echo "$xcode_version"
+          echo "$sdk_list"
+          [[ "$xcode_version" == Xcode\ 27.0* ]]
+          [[ "$sdk_list" == *iphoneos27.0* ]]
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: |
+          cd WorseCleanerBuild
+          xcodegen generate
+
+      - name: Compile unsigned
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project WorseCleanerBuild/WorseCleaner.xcodeproj \
+            -scheme WorseCleaner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          test -d DerivedData/Build/Products/Release-iphoneos/WorseCleaner.app
+          mkdir -p Payload
+          cp -R DerivedData/Build/Products/Release-iphoneos/WorseCleaner.app Payload/
+          zip -q -r WorseCleaner-iOS27-unsigned.ipa Payload
+          unzip -tq WorseCleaner-iOS27-unsigned.ipa
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cleaner-unsigned-ipa
+          path: WorseCleaner-iOS27-unsigned.ipa
+          if-no-files-found: error
+
+      # main is the current Cleaner source. On a new version, create the
+      # immutable release tag and attach the compiled unsigned IPA.
+      - name: Publish Cleaner release
+        if: github.ref_name == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*//p' WorseCleanerBuild/project.yml | head -n 1)"
+          build="$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*//p' WorseCleanerBuild/project.yml | head -n 1)"
+          [[ "$version" =~ ^0\.[0-9]+\.0$ ]]
+          [[ "$build" =~ ^[0-9]+$ ]]
+          test "$version" = "0.${build}.0"
+          tag="v${version}"
+          if ! command -v gh >/dev/null 2>&1; then
+            brew install gh
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; leave its tagged sources and IPA unchanged."
+            exit 0
+          fi
+          asset="Cleaner-v${version}-unsigned.ipa"
+          cp WorseCleaner-iOS27-unsigned.ipa "$asset"
+          gh release create "$tag" "$asset" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Cleaner v${version}" \
+            --target "$GITHUB_SHA" \
+            --notes-file WorseCleanerBuild/RELEASE_NOTES.md \
+            --latest
+          echo "Released $tag" >> "$GITHUB_STEP_SUMMARY"
+
+      # Required simulator UI regression checks. Screenshot fixtures bypass
+      # discovery only on the simulator, never signed-device safeguards.
+      - name: Capture native UI layouts
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project WorseCleanerBuild/WorseCleaner.xcodeproj \
+            -scheme WorseCleaner \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$PWD/DerivedDataSimulator" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
+          test -n "$simulator_id"
+          xcrun simctl boot "$simulator_id" || true
+          xcrun simctl bootstatus "$simulator_id" -b
+          xcrun simctl install "$simulator_id" DerivedDataSimulator/Build/Products/Release-iphonesimulator/WorseCleaner.app
+          mkdir -p ui-screenshots
+          xcrun simctl ui "$simulator_id" appearance light
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureToolbarHome
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/home-light.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/settings-light.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureExcludedApps
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/excluded-light.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl ui "$simulator_id" appearance dark
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureToolbarHome
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/home-dark.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/settings-dark.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner || true
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureExcludedApps
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/excluded-dark.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl ui "$simulator_id" appearance light
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedHome
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-light.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedSelection
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-selected-light.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl ui "$simulator_id" appearance dark
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedHome
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-dark.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl ui "$simulator_id" appearance light
+          if xcrun simctl ui "$simulator_id" content_size accessibility-medium; then
+            xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedHome
+            sleep 3
+            xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-accessibility-medium.png
+            xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+            xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
+            sleep 3
+            xcrun simctl io "$simulator_id" screenshot ui-screenshots/settings-accessibility-medium.png
+            xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+            xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureExcludedApps
+            sleep 3
+            xcrun simctl io "$simulator_id" screenshot ui-screenshots/excluded-accessibility-medium.png
+            xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+            xcrun simctl ui "$simulator_id" content_size large || true
+          fi
+
+      - name: Capture native toolbar menus with UI tests
+        run: |
+          set -euo pipefail
+          simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
+          test -n "$simulator_id"
+          xcodebuild test \
+            -project WorseCleanerBuild/WorseCleaner.xcodeproj \
+            -scheme WorseCleaner \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -derivedDataPath "$PWD/DerivedDataUITests" \
+            -resultBundlePath "$PWD/cleaner-ui-tests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+          mkdir -p ui-menu-screenshots
+          xcrun xcresulttool export attachments \
+            --path cleaner-ui-tests.xcresult \
+            --output-path ui-menu-screenshots
+
+      - name: Upload layout screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cleaner-layout-preview-v52
+          path: |
+            ui-screenshots/*.png
+            ui-menu-screenshots/**
+          if-no-files-found: ignore

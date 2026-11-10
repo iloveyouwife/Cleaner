@@ -1,19 +1,44 @@
 # Cleaner
 
-本仓库目前的应用项目是 **Cleaner**，一款基于 SwiftUI 的 iPhone App 缓存扫描与选择性清理工具。
+**Cleaner** 是一个面向 iPhone 的 App 缓存扫描与选择性清理工具，使用 SwiftUI 构建，界面适配 iOS 27。
 
-> **当前应用源码位于 [`worse-query-cleaner-v52` 分支](https://github.com/iloveyouwife/IOSurfaceProbe/tree/worse-query-cleaner-v52)。** 此 `main` 分支保留的是早期 IOSurface 诊断研究代码，并不是当前 Cleaner IPA 的构建来源。
+它尝试发现设备上的 App 数据容器，统计可访问的缓存大小，并在用户**手动选择及确认**后清理指定项目。能否访问其他 App 的容器取决于系统权限、实际签名及设备环境；本项目**不保证**所有设备或所有 App 都可扫描、清理。
 
-## 软件下载
+## 当前功能
 
-- [Cleaner Releases：下载未签名 IPA](https://github.com/iloveyouwife/IOSurfaceProbe/releases)
-- [Cleaner 的完整功能、权限边界和签名说明](https://github.com/iloveyouwife/IOSurfaceProbe/blob/worse-query-cleaner-v52/README.md)
-- [Cleaner 源码及构建方法](https://github.com/iloveyouwife/IOSurfaceProbe/tree/worse-query-cleaner-v52/WorseCleanerBuild)
+- 发现与识别 App 数据容器；无法确认归属的目录独立显示，避免把 UUID 当成 App 名称。
+- 扫描每个可访问容器的 `Library/Caches` 和 `tmp`，显示缓存大小。
+- 搜索、按缓存大小排序、批量选择、排除指定 App，以及管理已排除项目。
+- 清理前二次确认；仅处理被选中、已扫描且可访问的容器。
+- 高级设置提供 App Group 授权检查、深度发现、手动添加路径和访问诊断。
+- 可选的 App 名称补全：由用户主动触发，使用 Apple 的公开查询接口；不会上传缓存文件。
+- 使用原生 SwiftUI 菜单、SF Symbols 和动态字体；包含浅色、深色及辅助功能布局测试。
 
-Cleaner 可以在系统权限允许的范围内发现 App 容器，并统计、选择性清理可访问的 `Library/Caches` 和 `tmp`。**不保证能访问所有第三方 App，不清理系统数据，不提供越狱、root 或永久签名。**
+## 下载
 
-Releases 提供的是**未签名 IPA**，安装前需要用户自行签名并正确配置独立的 App Group。具体限制与风险请以当前 Cleaner 分支的 README 为准。
+最新未签名 IPA 和历史版本见 [GitHub Releases](https://github.com/iloveyouwife/Cleaner/releases)。
 
-## 历史资料
+**IPA 未签名，不能直接安装。** 使用前须由自己的开发者证书及匹配的 provisioning profile 签名，并配置独立且确实可用的 App Group。普通签名不代表一定能访问其他 App 的缓存。
 
-此分支原为 `IOSurfaceProbe` 研究项目；历史提交和诊断代码继续保留供查阅。仓库名称与定位迁移到 Cleaner 后，不应将早期诊断研究的说明视为当前 App 已实现的功能。
+## 适用范围与限制
+
+- 工程的最低部署版本为 **iOS 26.0**，使用 **Xcode 27.0** 构建；此前的界面测试不等于已验证所有系统版本的实际文件访问权限。
+- 删除范围只限于经过验证的 App 数据容器内的 `Library/Caches`、`tmp` 内容；不会清理系统数据、Documents 或整个 App 容器。
+- 不提供 root、越狱、永久签名、全设备沙盒读写或绕过 iOS 权限的保证。
+- 没有依赖配对文件、AFC/HouseArrest、VPN 或后台音频来执行当前清理流程。
+
+## 源码与构建
+
+- [Cleaner App 源码及技术说明](WorseCleanerBuild/README.md)
+- [XcodeGen 工程配置](WorseCleanerBuild/project.yml)
+- [IPA 构建与发行工作流](.github/workflows/cleaner-ipa.yml)
+
+## 版本管理
+
+- `main` 是 Cleaner 当前稳定源码，也是后续开发与发行的入口。
+- `v0.52.0`、`v0.53.0` 等 Git 标签固定对应的发行版源码；已发行的版本不会被覆盖。
+- 每次将新版本提交到 `main`，GitHub Actions 都会构建并测试。修改 `WorseCleanerBuild/project.yml` 中的 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 后，流水线会为尚未发布的新版本自动创建标签、Release 和未签名 IPA 附件。
+
+本仓库当前仅维护 Cleaner 应用源码、测试和发行流程。
+
+Cleaner 的缓存访问部分参考了 [forcequitOS/worse_query](https://github.com/forcequitOS/worse_query) 和 [YangJiiii/3105](https://github.com/YangJiiii/3105) 的相关实现。保留原始授权和署名；详见 [GPL-3.0-or-later 许可证](WorseCleanerBuild/LICENSE)。

@@ -1,0 +1,272 @@
+import SwiftUI
+import Darwin
+
+@MainActor
+final class WorseCleanerModel: ObservableObject {
+    @Published var apps: [WCTarget] = []
+    @Published var usage: [String: LimitedCleanerUsage] = [:]
+    @Published var busy = false
+    @Published var status = "尚未扫描任何 App。"
+    @Published var appGroupReady = false
+    @Published var grantedGroups: [String] = []
+    @Published var groupID = ""
+    @Published var groupConfirmed = false
+    @Published var scannedAppCount = 0
+    @Published var accessDiagnostics = "尚未进行容器访问诊断。"
+    @Published private(set) var excludedPaths = Set(
+        UserDefaults.standard.stringArray(forKey: "wc.excludedPaths") ?? []
+    )
+
+    private let queue = DispatchQueue(label: "org.worsecleaner.serial", qos: .userInitiated)
+    private let confirmedGroupKey = "wc.confirmedDedicatedGroup"
+    private var discoveredBundleRoots: [String] = []
+    private var lastPreparedGroup = ""
+
+    func setGroupConfirmed(_ value: Bool) {
+        groupConfirmed = value && appGroupReady
+        if groupConfirmed {
+            UserDefaults.standard.set(groupID, forKey: confirmedGroupKey)
+        } else if UserDefaults.standard.string(forKey: confirmedGroupKey) == groupID {
+            UserDefaults.standard.removeObject(forKey: confirmedGroupKey)
+        }
+    }
+
+    func exclude(_ paths: Set<String>) {
+        excludedPaths.formUnion(paths)
+        UserDefaults.standard.set(Array(excludedPaths), forKey: "wc.excludedPaths")
+    }
+
+    func restoreExcluded(_ paths: Set<String>) {
+        excludedPaths.subtract(paths)
+        UserDefaults.standard.set(Array(excludedPaths), forKey: "wc.excludedPaths")
+    }
+
+    func refreshSigning() {
+        grantedGroups = WCFileAccess.signedGroups()
+        let available = WCFileAccess.accessibleGroups()
+        if !available.contains(groupID) {
+            groupID = available.first(where: { $0.localizedCaseInsensitiveContains("worsecleaner") })
+                ?? available.first ?? ""
+        }
+        appGroupReady = !groupID.isEmpty && available.contains(groupID)
+        if lastPreparedGroup != groupID {
+            usage.removeAll()
+            scannedAppCount = 0
+            lastPreparedGroup = groupID
+        }
+        groupConfirmed = appGroupReady &&
+            UserDefaults.standard.string(forKey: confirmedGroupKey) == groupID
+    }
+
+    func loadApps() {
+        guard !busy else { return }
+        refreshSigning()
+        busy = true
+        status = "正在读取已安装 App 的容器列表……"
+        queue.async {
+            var error: NSString?
+            let raw = WCEnumerateApplicationContainers(&error)
+            let apps = raw.compactMap { item -> WCTarget? in
+                guard let id = item["bundleID"], let path = item["path"] else { return nil }
+                return try? WCTarget(
+                    bundleID: id, name: item["name"] ?? id, path: path
+                )
+            }
+            let message = error.map(String.init)
+            DispatchQueue.main.async {
+                self.usage.removeAll()
+                self.apps = apps
+                self.busy = false
+                let onlySelf = apps.count == 1 &&
+                    apps.first?.bundleID == Bundle.main.bundleIdentifier
+                if onlySelf {
+                    self.status = "仅发现本工具自己。系统限制了 MCM/LaunchServices 枚举；这不是全部已安装 App。可手动添加已知 UUID 容器。"
+                } else {
+                    self.status = apps.isEmpty
+                        ? (message ?? "没有发现 App 容器，可手动添加已知 UUID 路径。")
+                        : "发现 \(apps.count) 个可查询容器，尚未验证可读写权限。"
+                }
+                self.deepDiscoverApps(automaticallyScan: true)
+            }
+        }
+    }
+
+    func addManualPath(_ path: String) {
+        guard !busy else { return }
+        do {
+            let target = try WCTarget(bundleID: "manual", name: "手动指定的 App", path: path)
+            if !apps.contains(where: { $0.path == target.path }) {
+                apps.insert(target, at: 0)
+            }
+            status = "已添加容器；尚未验证访问权限，请点击扫描。"
+        } catch {
+            status = error.localizedDescription
+        }
+    }
+
+    func deepDiscoverApps(automaticallyScan: Bool = false) {
+        guard !busy else { return }
+        busy = true
+        status = "正在使用 worse_query 项目的 pathleak 枚举容器 inode；可能需要几分钟，结果不保证完整。"
+        queue.async {
+            let result = Result { try WCPathDiscovery.enumerateRoots() }
+            DispatchQueue.main.async {
+                self.busy = false
+                switch result {
+                case .success(let result):
+                    let found = result.data
+                    let capped = result.capped
+                    self.discoveredBundleRoots = result.bundles
+                    let existing = Set(self.apps.map(\.path))
+                    self.apps.append(contentsOf: found.filter { !existing.contains($0.path) })
+                    self.status = "inode 枚举发现 \(found.count) 个 App 数据目录、\(result.bundles.count) 个安装目录，当前列表 \(self.apps.count) 项"
+                        + (capped ? "；已达到 500 万 inode 上限，可能漏掉 App。" : "。")
+                    if automaticallyScan && self.appGroupReady && self.groupConfirmed {
+                        self.scanAll()
+                    }
+                case .failure(let error):
+                    self.status = "路径枚举失败：\(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    func scanAll() {
+        guard !busy, groupConfirmed, appGroupReady else {
+            status = "无法开始：需先确认专用 App Group 已授权。"
+            return
+        }
+        busy = true
+        let targets = apps.filter { !excludedPaths.contains($0.path) }
+        let selectedGroup = groupID
+        let bundleRoots = discoveredBundleRoots
+        scannedAppCount = 0
+        status = "正在检查已发现 App 的缓存权限……"
+        queue.async {
+            let catalog = WCAppNames.catalog(groupID: selectedGroup, discoveredBundleRoots: bundleRoots)
+            var results: [String: LimitedCleanerUsage] = [:]
+            var identities: [String: WCTarget] = [:]
+            var failures = 0
+            var identityCounts: [WCIdentitySource: Int] = [:]
+            var namedCount = 0
+            var readableButUnnamed = 0
+            var metadataErrors: [Int32: Int] = [:]
+            for (index, target) in targets.enumerated() {
+                if let inspection = try? WCFileAccess.inspect(
+                    target, groupID: selectedGroup, knownNames: catalog.names
+                ) {
+                    results[target.id] = inspection.usage
+                    identities[target.id] = inspection.target
+                    identityCounts[inspection.identitySource, default: 0] += 1
+                    if inspection.target.name != inspection.target.bundleID &&
+                        !inspection.target.name.hasPrefix("App 容器 ") {
+                        namedCount += 1
+                    } else if inspection.identitySource != .unresolved {
+                        readableButUnnamed += 1
+                    }
+                    if let code = inspection.metadataErrno {
+                        metadataErrors[code, default: 0] += 1
+                    }
+                } else {
+                    failures += 1
+                }
+                DispatchQueue.main.async { self.scannedAppCount = index + 1 }
+            }
+            DispatchQueue.main.async {
+                // A failed rescan must never retain stale size/selection data.
+                for target in targets { self.usage.removeValue(forKey: target.id) }
+                self.usage.merge(results) { _, newer in newer }
+                self.apps = self.apps.map { identities[$0.id] ?? $0 }
+                self.busy = false
+                let stats = "名称识别：\(namedCount) 个可显示名称（含离线名称映射）、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个未识别容器。"
+                let methods = "来源：元数据 \(identityCounts[.metadata, default: 0])，保存状态 \(identityCounts[.savedState, default: 0])，偏好文件 \(identityCounts[.preferences, default: 0])。"
+                let access = metadataErrors.sorted { $0.value > $1.value }.prefix(2)
+                    .map { "errno \($0.key): \($0.value)" }.joined(separator: "，")
+                let permissionHint = metadataErrors[EPERM, default: 0] > 0
+                    ? " 元数据受系统权限限制；详见高级设置中的访问诊断。" : ""
+                self.status = "扫描完成：\(results.count)/\(targets.count) 个容器可访问，" +
+                    "识别名称 \(namedCount) 个，识别 Bundle ID \(readableButUnnamed) 个。" +
+                    (failures == 0 ? "" : " 扫描失败 \(failures) 个。") + permissionHint
+                self.accessDiagnostics = catalog.diagnostics + "\n" + stats + "\n" + methods +
+                    (access.isEmpty ? "" : "\n元数据访问错误：\(access)。EPERM(1) 通常表示沙盒不允许读取该文件，缓存目录可访问不代表元数据可访问。")
+            }
+        }
+    }
+
+    /// Optional recovery when iOS blocks installed app Info.plist and
+    /// LaunchServices names. The UI must explicitly disclose the Apple lookup.
+    func completeMissingNamesOnline() {
+        guard !busy else { return }
+        let candidates = Array(Set(apps.compactMap { app -> String? in
+            guard app.name == app.bundleID, app.bundleID.contains("."),
+                  !app.bundleID.hasPrefix("group.") else { return nil }
+            return app.bundleID
+        })).sorted().prefix(80)
+        guard !candidates.isEmpty else {
+            status = "没有需要联网补全名称的 App。"
+            return
+        }
+        busy = true
+        status = "向 Apple 查询首批 \(candidates.count) 个未知 App 的公开名称……"
+        Task {
+            var found: [String: String] = [:]
+            let ids = Array(candidates)
+            for start in stride(from: 0, to: ids.count, by: 5) {
+                let batch = Array(ids[start..<min(start + 5, ids.count)])
+                await withTaskGroup(of: (String, String?).self) { group in
+                    for id in batch {
+                        group.addTask { (id, await WCAppNames.appStoreName(for: id)) }
+                    }
+                    for await (id, name) in group {
+                        if let name { found[id] = name }
+                    }
+                }
+                status = "已查询 \(min(start + 5, ids.count))/\(ids.count) 个 App，找到 \(found.count) 个名称。"
+            }
+            WCAppNames.storeVerifiedNames(found)
+            apps = apps.map { app in
+                guard app.name == app.bundleID, let name = found[app.bundleID] else {
+                    return app
+                }
+                return (try? WCTarget(bundleID: app.bundleID, name: name, path: app.path)) ?? app
+            }
+            busy = false
+            status = "联网名称补全完成：本次识别 \(found.count) 个，其余可能未在 Apple 商店收录或已下架。"
+        }
+    }
+
+    func cleanSelected(_ ids: Set<String>) {
+        guard !busy, groupConfirmed, appGroupReady else { return }
+        let targets = apps.filter {
+            ids.contains($0.id) && !excludedPaths.contains($0.path) && usage[$0.id] != nil
+        }
+        guard !targets.isEmpty else { return }
+        busy = true
+        let selectedGroup = groupID
+        queue.async {
+            var latest: [String: LimitedCleanerUsage] = [:]
+            var freed: Int64 = 0
+            var removed = 0
+            var failures = 0
+            var failedIDs = Set<String>()
+            for target in targets {
+                do {
+                    let result = try WCFileAccess.clean(target, groupID: selectedGroup)
+                    latest[target.id] = result.after
+                    freed += result.freedBytes
+                    removed += result.removedItemCount
+                    failures += result.failedItemCount
+                } catch {
+                    failures += 1
+                    failedIDs.insert(target.id)
+                }
+            }
+            DispatchQueue.main.async {
+                for id in failedIDs { self.usage.removeValue(forKey: id) }
+                for (key, result) in latest { self.usage[key] = result }
+                self.busy = false
+                self.status = "已删除 \(removed) 项，释放约 \(ByteCountFormatter.string(fromByteCount: freed, countStyle: .file))；失败或未验证 \(failures) 项。"
+            }
+        }
+    }
+}
