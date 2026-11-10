@@ -110,19 +110,20 @@ enum WCLaunchServices {
     // Read just one validated lsd file, with a file-size cap and a scoped,
     // read-only extension. No daemon path is exposed to cleanup.
     static func load(
-        storePath: String?, groupID: String, knownPaths: Set<String>
+        storePath: String?, groupID: String, knownPaths: Set<String>,
+        allowUnmatched: Bool = false
     ) -> WCLaunchServicesSnapshot? {
         guard let storePath, validStore(storePath),
               WCFileAccess.accessibleGroups().contains(groupID) else { return nil }
         let cacheRoot = (storePath as NSString).deletingLastPathComponent
-        let lease = worse_query(cacheRoot, groupID, false, true)
+        let lease = WCGrant.readablePath(cacheRoot, groupID: groupID)
         defer { if lease > 0 { worse_query_release(lease) } }
         var fileLease: Int64 = -1
         defer { if fileLease > 0 { worse_query_release(fileLease) } }
         var fd = open(storePath, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
         if fd < 0 && lease > 0 {
             // Some sandbox extensions cover the file but not its parent.
-            fileLease = worse_query(storePath, groupID, false, true)
+            fileLease = WCGrant.readablePath(storePath, groupID: groupID)
             if fileLease > 0 {
                 fd = open(storePath, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
             }
@@ -144,12 +145,14 @@ enum WCLaunchServices {
               initial.st_size == after.st_size,
               initial.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
               initial.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec else { return nil }
-        return parse(bytes, knownPaths: knownPaths)
+        return parse(bytes, knownPaths: knownPaths, allowUnmatched: allowUnmatched)
     }
 
     // Kept internal so a binary-fixture test can exercise both known and
     // unsupported layouts without needing a device sandbox extension.
-    static func parse(_ data: Data, knownPaths: Set<String>) -> WCLaunchServicesSnapshot? {
+    static func parse(
+        _ data: Data, knownPaths: Set<String>, allowUnmatched: Bool = false
+    ) -> WCLaunchServicesSnapshot? {
         guard data.count >= 4096, data.count <= maximumBytes,
               data.starts(with: [0x62, 0x64, 0x73, 0x6c]) else { return nil }
         let known = Set(knownPaths.map(normalizedPath))
@@ -273,8 +276,8 @@ enum WCLaunchServices {
                 }
                 return $0.names.count > $1.names.count
             }
-            guard var winner = ranked.first,
-                  winner.matched > 0, winner.containers.count >= 2 else { return nil }
+            guard var winner = ranked.first, winner.containers.count >= 2,
+                  (allowUnmatched || winner.matched > 0) else { return nil }
             // When two layouts have identical evidence, keep only identities
             // they agree on. This avoids wrong names after an OS layout shift.
             let tied = ranked.filter {
@@ -290,7 +293,9 @@ enum WCLaunchServices {
                     tied.allSatisfy { $0.names[id] == name }
                 }
             }
-            guard winner.containers.keys.contains(where: { known.contains($0) }) else { return nil }
+            guard winner.containers.count >= 2,
+                  allowUnmatched || winner.containers.keys.contains(where: { known.contains($0) })
+            else { return nil }
             let diagnostic = "LaunchServices：CSStore2 布局 \(winner.layout)，匹配已发现容器 \(winner.matched)，读取名称 \(winner.names.count)，可靠路径映射 \(winner.containers.count)。"
             return WCLaunchServicesSnapshot(names: winner.names,
                                             containers: winner.containers,

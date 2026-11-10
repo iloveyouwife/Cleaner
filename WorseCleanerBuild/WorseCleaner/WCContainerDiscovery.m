@@ -25,6 +25,9 @@ static const NSTimeInterval kWCFullRefreshAfter = 7 * 24 * 3600;
 static const NSTimeInterval kWCLSReverseRetry = 24 * 3600;
 static const uint64_t kWCLSReverseProbeCap = 3000000;
 
+static NSString *WCIndexPath(void);
+static BOOL WCProbeDataVolume(fsid_t *fsid, uint64_t *inode);
+
 // Match exactly one lsd cache file in an InternalDaemon UUID container. This
 // path is only passed to the name reader and never into the cleaner's targets.
 static BOOL WCIsLSStorePath(const char *path) {
@@ -43,11 +46,13 @@ static BOOL WCIsLSStorePath(const char *path) {
         strcmp(name + len - strlen(".csstore"), ".csstore") == 0;
 }
 
-static NSString *WCFindRecentLSStore(fsid_t volume, uint64_t upper, uint64_t *foundInode) {
+static NSString *WCFindRecentLSStore(fsid_t volume, uint64_t upper, uint64_t *foundInode,
+                                     uint64_t lookback, NSTimeInterval timeLimit) {
     // A rewritten lsd database normally has a recent inode. Existing v53
     // indexes lack its path; use one bounded reverse pass rather than a
     // second unbounded full-volume scan. If absent, normal name fallbacks run.
-    uint64_t lower = upper > kWCLSReverseProbeCap ? upper - kWCLSReverseProbeCap : 1;
+    uint64_t lower = upper > lookback ? upper - lookback : 1;
+    CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
     NSLock *lock = [NSLock new];
     __block uint64_t next = upper;
     __block NSString *found = nil;
@@ -58,12 +63,17 @@ static NSString *WCFindRecentLSStore(fsid_t volume, uint64_t upper, uint64_t *fo
         char buffer[PATH_MAX];
         for (;;) {
             [lock lock];
-            if (found || next < lower) { [lock unlock]; return; }
+            if (found || next < lower ||
+                (timeLimit > 0 && CFAbsoluteTimeGetCurrent() - started >= timeLimit)) {
+                [lock unlock]; return;
+            }
             uint64_t top = next;
             uint64_t bottom = top >= lower + kWCChunkSize - 1 ? top - kWCChunkSize + 1 : lower;
             next = bottom > lower ? bottom - 1 : lower - 1;
             [lock unlock];
             for (uint64_t ino = top; ino >= bottom; --ino) {
+                if ((ino & 255) == 0 && timeLimit > 0 &&
+                    CFAbsoluteTimeGetCurrent() - started >= timeLimit) break;
                 if (fsgetpath(buffer, sizeof(buffer), &fsid, ino) > 0 && WCIsLSStorePath(buffer)) {
                     [lock lock];
                     if (!found) {
@@ -78,6 +88,33 @@ static NSString *WCFindRecentLSStore(fsid_t volume, uint64_t upper, uint64_t *fo
         }
     });
     if (foundInode) *foundInode = matchedInode;
+    return found;
+}
+
+NSString *WCFindLaunchServicesStoreQuick(void) {
+    NSString *indexPath = WCIndexPath();
+    NSDictionary *saved = indexPath ? [NSDictionary dictionaryWithContentsOfFile:indexPath] : nil;
+    NSString *cached = [saved[@"lsStore"] isKindOfClass:NSString.class] ? saved[@"lsStore"] : nil;
+    if (cached && WCIsLSStorePath(cached.UTF8String)) {
+        struct stat st = {0};
+        if (lstat(cached.fileSystemRepresentation, &st) == 0 ||
+            (errno != ENOENT && errno != ENOTDIR)) {
+            return cached;
+        }
+    }
+    fsid_t fsid = {0};
+    uint64_t probe = 0;
+    if (!WCProbeDataVolume(&fsid, &probe)) return nil;
+    uint64_t inode = 0;
+    NSString *found = WCFindRecentLSStore(fsid, probe + kWCInodeMargin, &inode,
+                                          UINT64_MAX, 20);
+    if (found && indexPath) {
+        NSMutableDictionary *updated = saved ? [saved mutableCopy] : [NSMutableDictionary new];
+        updated[@"lsStore"] = found;
+        updated[@"lsInode"] = @(inode);
+        updated[@"lsTriedAt"] = @(NSDate.date.timeIntervalSince1970);
+        [updated writeToFile:indexPath atomically:YES];
+    }
     return found;
 }
 
@@ -250,7 +287,8 @@ NSDictionary<NSString *, id> *WCDiscoverDataContainers(
     NSTimeInterval lastLSAttempt = [saved[@"lsTriedAt"] respondsToSelector:@selector(doubleValue)]
         ? [saved[@"lsTriedAt"] doubleValue] : 0;
     if (!lsStore && (forceFullScan || !reusable || now - lastLSAttempt >= kWCLSReverseRetry)) {
-        lsStore = WCFindRecentLSStore(volume, upper, &lsInode);
+        lsStore = WCFindRecentLSStore(volume, upper, &lsInode,
+                                      kWCLSReverseProbeCap, 0);
         lastLSAttempt = now;
     }
     if (indexPath) {
@@ -269,5 +307,25 @@ NSDictionary<NSString *, id> *WCDiscoverDataContainers(
         @"extensions": [extensions.allKeys sortedArrayUsingSelector:@selector(compare:)],
         @"incremental": @(reusable), @"scanned": @(total), @"upper": @(upper),
         @"completeBound": @(reachedEnd), @"lsStore": lsStore ?: @""
+    };
+}
+
+NSDictionary<NSString *, NSArray<NSString *> *> *WCReadCachedDataContainers(void) {
+    fsid_t volume = {0};
+    uint64_t probe = 0;
+    if (!WCProbeDataVolume(&volume, &probe)) return nil;
+    NSString *path = WCIndexPath();
+    NSDictionary *saved = path ? [NSDictionary dictionaryWithContentsOfFile:path] : nil;
+    if (![saved[@"version"] isKindOfClass:NSNumber.class] ||
+        [saved[@"version"] integerValue] != 1 ||
+        [saved[@"fs0"] intValue] != volume.val[0] ||
+        [saved[@"fs1"] intValue] != volume.val[1] ||
+        ![saved[@"apps"] isKindOfClass:NSDictionary.class] ||
+        ![saved[@"extensions"] isKindOfClass:NSDictionary.class]) return nil;
+    NSDictionary *apps = WCVerifiedIndex(saved[@"apps"], volume, kWCAppRoot);
+    NSDictionary *extensions = WCVerifiedIndex(saved[@"extensions"], volume, kWCExtensionRoot);
+    return @{
+        @"apps": [apps.allKeys sortedArrayUsingSelector:@selector(compare:)],
+        @"extensions": [extensions.allKeys sortedArrayUsingSelector:@selector(compare:)]
     };
 }

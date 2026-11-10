@@ -9,6 +9,70 @@ enum WCPathDiscovery {
     private static let bundleCacheKey = "wc.bundleRootIndex"
     private static let bundleCacheTimeKey = "wc.bundleRootIndexTime"
 
+    // WQFiles v0.8: the LaunchServices index records installed Application and
+    // PluginKitPlugin data-container UUIDs. Prefer those verified paths over a
+    // full-volume inode walk; retain enumerateRoots() as an explicit fallback.
+    static func quickLaunchServicesRoots(
+        groupID: String, knownPaths: Set<String>
+    ) -> (data: [WCTarget], launchServicesStore: String, diagnostics: String)? {
+        guard !groupID.isEmpty, let store = WCFindLaunchServicesStoreQuick(),
+              let snapshot = WCLaunchServices.load(
+                storePath: store, groupID: groupID, knownPaths: knownPaths,
+                allowUnmatched: true
+              ) else { return nil }
+
+        var targets: [WCTarget] = []
+        var removed = 0
+        for (path, bundleID) in snapshot.containers.sorted(by: { $0.key < $1.key }) {
+            var details = stat()
+            if lstat(path, &details) != 0 {
+                // LaunchServices also retains entries from uninstalled apps.
+                // EPERM is not proof of absence on a sandboxed device.
+                if errno == ENOENT || errno == ENOTDIR { removed += 1; continue }
+            } else if (details.st_mode & S_IFMT) != S_IFDIR {
+                removed += 1
+                continue
+            }
+            guard WCFileAccess.isValidApplicationContainer(path) else { continue }
+            let name = WCAppNames.displayName(for: bundleID, names: snapshot.names) ?? bundleID
+            if let target = try? WCTarget(bundleID: bundleID, name: name, path: path) {
+                targets.append(target)
+            }
+        }
+        let appCount = targets.filter {
+            $0.path.contains("/Containers/Data/Application/")
+        }.count
+        // At least two real app records are needed to trust this shortcut.
+        // Otherwise proceed with the original complete discovery mechanism.
+        guard appCount >= 2 else { return nil }
+        // A device may already have hundreds of previously verified inode
+        // containers absent from the current LS database. Keep those entries
+        // in the list, without performing an expensive new full-volume walk.
+        let cached = WCReadCachedDataContainers()
+        var known = Set(targets.map { $0.path.hasPrefix("/var/") ? "/private" + $0.path : $0.path })
+        var reused = 0
+        for (type, prefix) in [("apps", "App 容器 "), ("extensions", "扩展容器 ")] {
+            for raw in cached?[type] ?? [] {
+                let path = raw.hasPrefix("/var/") ? "/private" + raw : raw
+                guard !known.contains(path), WCFileAccess.isValidApplicationContainer(path) else {
+                    continue
+                }
+                let uuid = URL(fileURLWithPath: path).lastPathComponent
+                let bundleID = snapshot.containers[path] ?? ("容器 " + String(uuid.prefix(8)))
+                let name = snapshot.containers[path] != nil
+                    ? (WCAppNames.displayName(for: bundleID, names: snapshot.names) ?? bundleID)
+                    : prefix + String(uuid.prefix(8))
+                if let target = try? WCTarget(bundleID: bundleID, name: name, path: path) {
+                    targets.append(target)
+                    known.insert(path)
+                    reused += 1
+                }
+            }
+        }
+        return (targets, store,
+                "\(snapshot.diagnostics) 已排除 \(removed) 条无效容器记录，沿用已验证 inode 索引 \(reused) 项。")
+    }
+
     static func enumerateRoots(
         forceFull: Bool = false,
         progress: ((UInt64, UInt64) -> Void)? = nil

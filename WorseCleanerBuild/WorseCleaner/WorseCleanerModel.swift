@@ -21,6 +21,7 @@ final class WorseCleanerModel: ObservableObject {
     private let confirmedGroupKey = "wc.confirmedDedicatedGroup"
     private var discoveredBundleRoots: [String] = []
     private var discoveredLSStore: String?
+    private var discoveryDiagnostics = ""
     private var lastPreparedGroup = ""
     private var discoveryPercent = 0
 
@@ -70,6 +71,7 @@ final class WorseCleanerModel: ObservableObject {
         refreshSigning()
         busy = true
         status = "正在读取已安装 App 的容器列表……"
+        let selectedGroup = groupConfirmed && appGroupReady ? groupID : ""
         queue.async {
             var error: NSString?
             let raw = WCEnumerateApplicationContainers(&error)
@@ -79,19 +81,46 @@ final class WorseCleanerModel: ObservableObject {
                     bundleID: id, name: item["name"] ?? id, path: path
                 )
             }
+            let quick = WCPathDiscovery.quickLaunchServicesRoots(
+                groupID: selectedGroup, knownPaths: Set(apps.map(\.path))
+            )
+            let discovered: [WCTarget]
+            if let quick {
+                // The database owns identities for exact UUID paths. Keep any
+                // additional MCM entries; never lose a real container when
+                // either catalog alone is incomplete.
+                var seen = Set<String>()
+                discovered = (quick.data + apps).filter {
+                    let path = $0.path
+                    let identity = path.hasPrefix("/private/var/")
+                        ? String(path.dropFirst("/private".count)) : path
+                    return seen.insert(identity).inserted
+                }
+            } else {
+                discovered = apps
+            }
             let message = error.map(String.init)
             DispatchQueue.main.async {
                 self.usage.removeAll()
-                self.apps = apps
+                self.apps = discovered
                 self.busy = false
-                let onlySelf = apps.count == 1 &&
-                    apps.first?.bundleID == Bundle.main.bundleIdentifier
+                if let quick {
+                    self.discoveredLSStore = quick.launchServicesStore
+                    self.discoveredBundleRoots = []
+                    self.discoveryDiagnostics = quick.diagnostics
+                    self.status = "通过 App 数据库发现 \(quick.data.count) 个容器，当前列表 \(discovered.count) 项。"
+                    if self.appGroupReady && self.groupConfirmed { self.scanAll() }
+                    return
+                }
+                self.discoveryDiagnostics = "App 数据库快速发现不可用，已使用原有 inode 枚举回退。"
+                let onlySelf = discovered.count == 1 &&
+                    discovered.first?.bundleID == Bundle.main.bundleIdentifier
                 if onlySelf {
                     self.status = "仅发现本工具自己。系统限制了 MCM/LaunchServices 枚举。这不是全部已安装 App。可手动添加已知 UUID 容器。"
                 } else {
-                    self.status = apps.isEmpty
+                    self.status = discovered.isEmpty
                         ? (message ?? "没有发现 App 容器，可手动添加已知 UUID 路径。")
-                        : "发现 \(apps.count) 个可查询容器，尚未验证可读写权限。"
+                        : "发现 \(discovered.count) 个可查询容器，尚未验证可读写权限。"
                 }
                 self.deepDiscoverApps(automaticallyScan: true)
             }
@@ -172,13 +201,18 @@ final class WorseCleanerModel: ObservableObject {
         let selectedGroup = groupID
         let bundleRoots = discoveredBundleRoots
         let lsStore = discoveredLSStore
+        let discoveryInfo = discoveryDiagnostics
         scannedAppCount = 0
         status = "正在检查已发现 App 的缓存权限……"
         queue.async {
+            let catalogStarted = ProcessInfo.processInfo.systemUptime
             let catalog = WCAppNames.catalog(
                 groupID: selectedGroup, discoveredBundleRoots: bundleRoots,
                 launchServicesStore: lsStore, knownPaths: Set(targets.map(\.path))
             )
+            let catalogDuration = ProcessInfo.processInfo.systemUptime - catalogStarted
+            let inspectionStarted = ProcessInfo.processInfo.systemUptime
+            var lastProgressUpdate = inspectionStarted
             var results: [String: LimitedCleanerUsage] = [:]
             var identities: [String: WCTarget] = [:]
             var failures = 0
@@ -206,8 +240,13 @@ final class WorseCleanerModel: ObservableObject {
                 } else {
                     failures += 1
                 }
-                DispatchQueue.main.async { self.scannedAppCount = index + 1 }
+                let now = ProcessInfo.processInfo.systemUptime
+                if now - lastProgressUpdate >= 0.15 || index + 1 == targets.count {
+                    lastProgressUpdate = now
+                    DispatchQueue.main.async { self.scannedAppCount = index + 1 }
+                }
             }
+            let inspectionDuration = ProcessInfo.processInfo.systemUptime - inspectionStarted
             DispatchQueue.main.async {
                 // A failed rescan must never retain stale size/selection data.
                 for target in targets { self.usage.removeValue(forKey: target.id) }
@@ -223,7 +262,9 @@ final class WorseCleanerModel: ObservableObject {
                 self.status = "扫描完成：\(results.count)/\(targets.count) 个容器可访问，" +
                     "识别名称 \(namedCount) 个，识别 Bundle ID \(readableButUnnamed) 个。" +
                     (failures == 0 ? "" : " 扫描失败 \(failures) 个。") + permissionHint
-                self.accessDiagnostics = catalog.diagnostics + "\n" + stats + "\n" + methods +
+                self.accessDiagnostics = discoveryInfo + "\n" + catalog.diagnostics +
+                    "\n扫描耗时：名称索引 \(String(format: "%.1f", catalogDuration)) 秒，缓存计量 \(String(format: "%.1f", inspectionDuration)) 秒。" +
+                    "\n" + stats + "\n" + methods +
                     (access.isEmpty ? "" : "\n元数据访问错误：\(access)。EPERM(1) 通常表示沙盒不允许读取该文件，缓存目录可访问不代表元数据可访问。")
             }
         }

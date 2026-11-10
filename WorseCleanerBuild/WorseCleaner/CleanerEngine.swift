@@ -94,7 +94,7 @@ enum WCFileAccess {
         // 'true' deliberately skips upstream's lstat precheck: lstat can return
         // EPERM on a perfectly existing foreign container before the extension.
         // It does not create the foreign target directory.
-        let handle = worse_query(target.path, groupID, false, true)
+        let handle = WCGrant.readablePath(target.path, groupID: groupID)
         guard handle > 0 else { throw WCFailure.unavailable(handle) }
         var scopedHandles: [Int64] = []
         defer {
@@ -110,7 +110,7 @@ enum WCFileAccess {
             if descriptor >= 0 {
                 close(descriptor)
             } else if errno == EPERM {
-                let scoped = worse_query(cachePath, groupID, false, true)
+                let scoped = WCGrant.readablePath(cachePath, groupID: groupID)
                 if scoped > 0 { scopedHandles.append(scoped) }
             }
         }

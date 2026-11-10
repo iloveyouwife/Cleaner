@@ -152,7 +152,7 @@ enum WCAppNames {
 
         // First fallback: read-only sandbox extension for the bundle parent.
         // On iOS 27 this may not expose children even when data containers work.
-        let rootLease = preferIndex ? -1 : worse_query(root, groupID, false, true)
+        let rootLease = preferIndex ? -1 : WCGrant.readablePath(root, groupID: groupID)
         if rootLease > 0 {
             let folders = (try? fm.contentsOfDirectory(atPath: root)) ?? []
             for folder in folders.prefix(2_048) where UUID(uuidString: folder) != nil {
@@ -177,7 +177,7 @@ enum WCAppNames {
             guard path.hasPrefix(root + "/"),
                   UUID(uuidString: String(path.dropFirst(root.count + 1))) != nil,
                   !enumeratedPaths.contains(path) else { continue }
-            let scopedLease = worse_query(path, groupID, false, true)
+            let scopedLease = WCGrant.readablePath(path, groupID: groupID)
             guard scopedLease > 0 else { continue }
             perRootGrants += 1
             let before = readableApps
