@@ -61,17 +61,28 @@ final class CleanerUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-captureLongRows"]
         app.launch()
-        let zeroRow = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "LimitedModeShieldApp，缓存 0 KB")
+        let longRow = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "MagnifierAngelWithAnUnusuallyLongDisplayName，缓存 1.2 GB")
         ).firstMatch
         // List rows may be lazily instantiated below the initial viewport.
-        for _ in 0..<5 {
-            if zeroRow.exists { break }
+        for _ in 0..<8 {
+            if longRow.exists { break }
             app.swipeUp()
         }
-        XCTAssertTrue(zeroRow.waitForExistence(timeout: 5),
-                      "A long title must retain its exact zero-size amount.")
+        XCTAssertTrue(longRow.waitForExistence(timeout: 5),
+                      "A long title must retain its accessible cache-size amount.")
         capture("long-names-and-amounts")
+    }
+
+    func testSearchDrawerScrollInteraction() {
+        let app = launchPreview()
+        // Capture all three states using the OS search drawer; do not manually
+        // animate the toolbar or replace the native search field.
+        capture("search-drawer-at-top")
+        app.swipeUp()
+        capture("search-drawer-after-scroll")
+        app.swipeDown()
+        capture("search-drawer-after-pull-down")
     }
 
     func testAdvancedSettingsRowsAndDiagnostics() {

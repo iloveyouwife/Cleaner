@@ -144,7 +144,7 @@ struct ContentView: View {
                 }
             .listStyle(.insetGrouped)
             .scrollDismissesKeyboard(.interactively)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic),
                         prompt: "搜索 App")
             .task(id: searchText) {
                 // The keyboard remains responsive; filter once after a brief
