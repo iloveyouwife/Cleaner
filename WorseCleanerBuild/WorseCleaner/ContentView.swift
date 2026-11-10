@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // 3105 CleanerView's layout: search, summary, sortable/selectable app rows,
 // selection menu, bulk action, and confirmation. The backend is worse_query.
@@ -144,6 +145,17 @@ struct ContentView: View {
                 }
             .listStyle(.insetGrouped)
             .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    // End keyboard focus when tapping list content without
+                    // cancelling native search or clearing the current query.
+                    // A simultaneous gesture preserves the row button action.
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil, from: nil, for: nil
+                    )
+                }
+            )
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic),
                         prompt: "搜索 App")
             .task(id: searchText) {
