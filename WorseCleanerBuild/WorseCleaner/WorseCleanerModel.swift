@@ -20,6 +20,7 @@ final class WorseCleanerModel: ObservableObject {
     private let queue = DispatchQueue(label: "org.worsecleaner.serial", qos: .userInitiated)
     private let confirmedGroupKey = "wc.confirmedDedicatedGroup"
     private var discoveredBundleRoots: [String] = []
+    private var discoveredLSStore: String?
     private var lastPreparedGroup = ""
     private var discoveryPercent = 0
 
@@ -142,6 +143,7 @@ final class WorseCleanerModel: ObservableObject {
                 case .success(let result):
                     let found = result.data
                     self.discoveredBundleRoots = result.bundles
+                    self.discoveredLSStore = result.launchServicesStore
                     let existing = Set(self.apps.map { Self.pathIdentity($0.path) })
                     self.apps.append(contentsOf: found.filter {
                         !existing.contains(Self.pathIdentity($0.path))
@@ -169,10 +171,14 @@ final class WorseCleanerModel: ObservableObject {
         let targets = apps.filter { !excludedPaths.contains($0.path) }
         let selectedGroup = groupID
         let bundleRoots = discoveredBundleRoots
+        let lsStore = discoveredLSStore
         scannedAppCount = 0
         status = "正在检查已发现 App 的缓存权限……"
         queue.async {
-            let catalog = WCAppNames.catalog(groupID: selectedGroup, discoveredBundleRoots: bundleRoots)
+            let catalog = WCAppNames.catalog(
+                groupID: selectedGroup, discoveredBundleRoots: bundleRoots,
+                launchServicesStore: lsStore, knownPaths: Set(targets.map(\.path))
+            )
             var results: [String: LimitedCleanerUsage] = [:]
             var identities: [String: WCTarget] = [:]
             var failures = 0
@@ -182,7 +188,8 @@ final class WorseCleanerModel: ObservableObject {
             var metadataErrors: [Int32: Int] = [:]
             for (index, target) in targets.enumerated() {
                 if let inspection = try? WCFileAccess.inspect(
-                    target, groupID: selectedGroup, knownNames: catalog.names
+                    target, groupID: selectedGroup, knownNames: catalog.names,
+                    knownContainers: catalog.containers
                 ) {
                     results[target.id] = inspection.usage
                     identities[target.id] = inspection.target
@@ -208,7 +215,7 @@ final class WorseCleanerModel: ObservableObject {
                 self.apps = self.apps.map { identities[$0.id] ?? $0 }
                 self.busy = false
                 let stats = "名称识别：\(namedCount) 个可显示名称（含离线名称映射）、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个未识别容器。"
-                let methods = "来源：元数据 \(identityCounts[.metadata, default: 0])，保存状态 \(identityCounts[.savedState, default: 0])，偏好文件 \(identityCounts[.preferences, default: 0])。"
+                let methods = "来源：LaunchServices \(identityCounts[.launchServices, default: 0])，元数据 \(identityCounts[.metadata, default: 0])，保存状态 \(identityCounts[.savedState, default: 0])，偏好文件 \(identityCounts[.preferences, default: 0])。"
                 let access = metadataErrors.sorted { $0.value > $1.value }.prefix(2)
                     .map { "errno \($0.key): \($0.value)" }.joined(separator: "，")
                 let permissionHint = metadataErrors[EPERM, default: 0] > 0
@@ -294,7 +301,7 @@ final class WorseCleanerModel: ObservableObject {
                 for id in failedIDs { self.usage.removeValue(forKey: id) }
                 for (key, result) in latest { self.usage[key] = result }
                 self.busy = false
-                self.status = "已删除 \(removed) 项，释放约 \(ByteCountFormatter.string(fromByteCount: freed, countStyle: .file))；失败或未验证 \(failures) 项。"
+                self.status = "已删除 \(removed) 项，释放约 \(CleanerSizeText.bytes(freed))；失败或未验证 \(failures) 项。"
             }
         }
     }

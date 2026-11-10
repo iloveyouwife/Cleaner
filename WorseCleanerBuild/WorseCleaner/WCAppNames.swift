@@ -3,13 +3,14 @@ import Darwin
 
 struct WCAppCatalog {
     let names: [String: String]
+    let containers: [String: String]
     let diagnostics: String
 }
 
-// The system may hide third-party LSApplicationProxy display names even when
-// worse_query exposes their data-container Bundle IDs. Keep two independent
-// fallbacks: exact known identifiers and an on-device read of installed .app
-// Info.plist files. Never assign a guessed name to an unknown Bundle ID.
+// Primary source: a single read of lsd's CSStore2 index, binding exact data
+// container UUIDs to Bundle IDs and names. If that is missing or incomplete,
+// use the existing verified names, installed Info.plist, metadata and
+// preferences. Never guess an unknown container's identity.
 enum WCAppNames {
     private static let offlineNames: [String: String] = [
         "com.tencent.xin": "微信",
@@ -98,9 +99,20 @@ enum WCAppNames {
         return nil
     }
 
-    static func catalog(groupID: String, discoveredBundleRoots: [String] = []) -> WCAppCatalog {
+    static func catalog(
+        groupID: String, discoveredBundleRoots: [String] = [],
+        launchServicesStore: String? = nil, knownPaths: Set<String> = []
+    ) -> WCAppCatalog {
         var names = offlineNames
         names.merge(savedNames()) { _, saved in saved }
+        let ls = WCLaunchServices.load(
+            storePath: launchServicesStore, groupID: groupID, knownPaths: knownPaths
+        )
+        if let ls {
+            // Device-local LaunchServices names take precedence over offline
+            // tables and public App Store lookup, which may be outdated.
+            names.merge(ls.names) { _, launchServices in launchServices }
+        }
         let root = "/var/containers/Bundle/Application"
         let fm = FileManager.default
         var readableApps = 0
@@ -120,14 +132,27 @@ enum WCAppNames {
                       !bundleID.isEmpty else { continue }
                 readableApps += 1
                 if let name = installedName(at: appPath, info: info) {
-                    names[bundleID] = name
+                    // The local LaunchServices store is the preferred source.
+                    if ls?.names[bundleID] == nil { names[bundleID] = name }
                 }
             }
         }
 
-        // First try one read-only sandbox extension for the bundle parent.
+        // A trustworthy LS mapping already provides both exact container
+        // ownership and localized names. Skip hundreds of per-app Info.plist
+        // reads when it covers most discovered containers; the old route
+        // remains available for absent, partial and changed CSStore layouts.
+        let normalizedKnown = Set(knownPaths.map {
+            $0.hasPrefix("/var/") ? "/private" + $0 : $0
+        })
+        let matched = ls?.containers.keys.filter { normalizedKnown.contains($0) }.count ?? 0
+        let enoughMatches = matched >= max(2, knownPaths.count * 3 / 4)
+        let named = ls?.containers.values.filter { ls?.names[$0] != nil }.count ?? 0
+        let preferIndex = enoughMatches && named >= matched * 3 / 4
+
+        // First fallback: read-only sandbox extension for the bundle parent.
         // On iOS 27 this may not expose children even when data containers work.
-        let rootLease = worse_query(root, groupID, false, true)
+        let rootLease = preferIndex ? -1 : worse_query(root, groupID, false, true)
         if rootLease > 0 {
             let folders = (try? fm.contentsOfDirectory(atPath: root)) ?? []
             for folder in folders.prefix(2_048) where UUID(uuidString: folder) != nil {
@@ -147,7 +172,7 @@ enum WCAppNames {
         // each *existing* bundle directory and read its Info.plist.
         // This avoids assuming a parent directory token grants child access.
         var perRootGrants = 0
-        for rawPath in Set(discoveredBundleRoots).sorted().prefix(2_048) {
+        for rawPath in (preferIndex ? [] : Set(discoveredBundleRoots).sorted()).prefix(2_048) {
             let path = rawPath.replacingOccurrences(of: "/private/var/", with: "/var/")
             guard path.hasPrefix(root + "/"),
                   UUID(uuidString: String(path.dropFirst(root.count + 1))) != nil,
@@ -160,7 +185,9 @@ enum WCAppNames {
             if readableApps > before { readableBundleRoots += 1 }
             worse_query_release(scopedLease)
         }
-        let info = "安装包根目录 token=\(rootLease)，pathleak 发现 \(discoveredBundleRoots.count) 个安装目录，单目录授权 \(perRootGrants)，读到 \(readableApps) 份 Info.plist。列表已关闭图标读取。"
-        return WCAppCatalog(names: names, diagnostics: info)
+        let lsInfo = ls?.diagnostics ?? "LaunchServices：数据库缺失、暂不可读或格式未通过路径校验，已使用原有识别回退。"
+        let info = lsInfo + "\n安装包回退：\(preferIndex ? "名称索引覆盖充分，跳过重复读取" : "已启用")；安装目录 \(discoveredBundleRoots.count)，单目录授权 \(perRootGrants)，读到 \(readableApps) 份 Info.plist。"
+        return WCAppCatalog(names: names, containers: ls?.containers ?? [:],
+                            diagnostics: info)
     }
 }

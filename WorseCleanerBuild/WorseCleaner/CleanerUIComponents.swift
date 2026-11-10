@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// One formatter for every cache-size label, action and status message.
+/// ByteCountFormatter localizes zero as "Zero KB" on some system languages;
+/// Cleaner intentionally uses the numeric "0 KB" consistently.
+enum CleanerSizeText {
+    static func bytes(_ count: Int64) -> String {
+        guard count > 0 else { return "0 KB" }
+        return ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
+    }
+}
+
 /// Shared presentation rules for content rows. SF Symbols and typography use
 /// Dynamic Type; an explicit centered LabelStyle avoids the system Label's
 /// first-line alignment and overly wide automatic icon/title separation.
@@ -194,7 +204,7 @@ struct CleanerAppRow: View {
 
     private var cacheSize: String {
         guard let usage else { return "未扫描" }
-        return ByteCountFormatter.string(fromByteCount: usage.totalBytes, countStyle: .file)
+        return CleanerSizeText.bytes(usage.totalBytes)
     }
 
     private var cacheLabel: some View {

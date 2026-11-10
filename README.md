@@ -6,7 +6,7 @@
 
 ## 当前功能
 
-- 发现与识别普通 App 和扩展的数据容器；无法确认归属的目录独立显示，避免把 UUID 当成 App 名称。
+- 发现与识别普通 App 和扩展的数据容器；优先从本机 LaunchServices 数据库按容器路径对应 Bundle ID 和显示名称，旧系统格式或读取失败时回退到原有名称识别；无法确认归属的目录独立显示。
 - 扫描每个可访问容器的 `Library/Caches` 和 `tmp`，显示缓存大小。动态 inode 上限和本地增量索引用于减少漏扫与重复扫描。
 - 搜索、按缓存大小排序、批量选择、排除指定 App，以及管理已排除项目。
 - 清理前二次确认；仅处理被选中、已扫描且可访问的容器。
@@ -42,4 +42,4 @@
 
 本仓库当前仅维护 Cleaner 应用源码、测试和发行流程。
 
-Cleaner 的缓存访问部分参考了 [forcequitOS/worse_query](https://github.com/forcequitOS/worse_query)、[YangJiiii/3105](https://github.com/YangJiiii/3105)；容器发现与增量索引思路参考了 [kolbicz/WQFiles](https://github.com/kolbicz/WQFiles)。保留原始授权和署名；详见 [GPL-3.0-or-later 许可证](WorseCleanerBuild/LICENSE)。
+Cleaner 的缓存访问部分参考了 [forcequitOS/worse_query](https://github.com/forcequitOS/worse_query)、[YangJiiii/3105](https://github.com/YangJiiii/3105)；容器发现、增量索引及 LaunchServices CSStore2 解析思路参考并适配了 [kolbicz/WQFiles](https://github.com/kolbicz/WQFiles)。保留原始授权和署名；详见 [GPL-3.0-or-later 许可证](WorseCleanerBuild/LICENSE)。

@@ -26,6 +26,7 @@ struct WCInspection {
 }
 
 enum WCIdentitySource: String {
+    case launchServices = "LaunchServices"
     case metadata = "元数据"
     case savedState = "保存状态"
     case preferences = "偏好文件"
@@ -171,11 +172,13 @@ enum WCFileAccess {
     }
 
     static func inspect(
-        _ target: WCTarget, groupID: String, knownNames: [String: String] = [:]
+        _ target: WCTarget, groupID: String, knownNames: [String: String] = [:],
+        knownContainers: [String: String] = [:]
     ) throws -> WCInspection {
         try withLease(for: target, groupID: groupID) {
             try checkReadableDirectories(target)
-            let identity = inspectIdentity(target, knownNames: knownNames)
+            let identity = inspectIdentity(target, knownNames: knownNames,
+                                           knownContainers: knownContainers)
             let usage = try LimitedCleanerService.scan(
                 containerURL: URL(fileURLWithPath: target.path),
                 rootValidator: { isValidApplicationContainer($0.path) && $0.path == target.path }
@@ -238,8 +241,17 @@ enum WCFileAccess {
     }
 
     private static func inspectIdentity(
-        _ target: WCTarget, knownNames: [String: String]
+        _ target: WCTarget, knownNames: [String: String],
+        knownContainers: [String: String]
     ) -> (WCTarget, WCIdentitySource, Int32?) {
+        // Highest-confidence route: CSStore2 explicitly binds the exact data
+        // container UUID path to an installed app/extension Bundle ID.
+        let normalized = target.path.hasPrefix("/var/")
+            ? "/private" + target.path : target.path
+        if let id = knownContainers[normalized],
+           let resolved = resolvedTarget(target, bundleID: id, knownNames: knownNames) {
+            return (resolved, .launchServices, nil)
+        }
         // 3105's first route: MCMMetadataIdentifier and MCMMetadataInfo.
         let metadata = metadataPlist(target)
         if let plist = metadata.plist {

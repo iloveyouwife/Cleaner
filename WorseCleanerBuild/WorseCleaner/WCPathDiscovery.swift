@@ -13,7 +13,8 @@ enum WCPathDiscovery {
         forceFull: Bool = false,
         progress: ((UInt64, UInt64) -> Void)? = nil
     ) throws -> (data: [WCTarget], bundles: [String], incremental: Bool,
-                 scannedInodes: UInt64, extensionCount: Int, completeBound: Bool) {
+                 scannedInodes: UInt64, extensionCount: Int, completeBound: Bool,
+                 launchServicesStore: String?) {
         guard let result = WCDiscoverDataContainers(forceFull, progress) else {
             throw WCFailure.inaccessible("文件系统 inode 范围", errno)
         }
@@ -58,6 +59,7 @@ enum WCPathDiscovery {
                 (result["incremental"] as? NSNumber)?.boolValue ?? false,
                 (result["scanned"] as? NSNumber)?.uint64Value ?? 0,
                 extensionPaths.count,
-                (result["completeBound"] as? NSNumber)?.boolValue ?? false)
+                (result["completeBound"] as? NSNumber)?.boolValue ?? false,
+                (result["lsStore"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 }

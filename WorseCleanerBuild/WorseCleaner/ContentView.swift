@@ -12,6 +12,9 @@ struct ContentView: View {
 
     @StateObject private var model = WorseCleanerModel()
     @State private var searchText = ""
+    @State private var appliedSearchText = ""
+    @State private var orderedApps: [WCTarget] = []
+    @State private var searchSections = SearchSections()
     @State private var largestFirst = true
     @State private var selectedIDs = Set<String>()
     @State private var manualPath = ""
@@ -26,46 +29,66 @@ struct ContentView: View {
     @ScaledMetric(relativeTo: .body) private var progressSize: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var shieldSize: CGFloat = 16
 
-    private var filteredApps: [WCTarget] {
-        let matching = model.apps.filter {
+    private struct SearchSections {
+        var named: [WCTarget] = []
+        var bundleIDOnly: [WCTarget] = []
+        var unidentified: [WCTarget] = []
+    }
+
+    // Keep this sort out of SwiftUI's per-keystroke body evaluation.
+    // Scanning may update progress hundreds of times; neither progress nor a
+    // text-field edit should cause multiple copies of the full list to sort.
+    private func rebuildOrderedApps() {
+        orderedApps = model.apps.filter {
             !model.excludedPaths.contains($0.path) &&
-            !isInternalSystemService($0.bundleID) && (
-                searchText.isEmpty ||
-                $0.name.localizedCaseInsensitiveContains(searchText) ||
-                $0.bundleID.localizedCaseInsensitiveContains(searchText) ||
-                URL(fileURLWithPath: $0.path).lastPathComponent
-                    .localizedCaseInsensitiveContains(searchText)
-            )
-        }
-        return matching.sorted { lhs, rhs in
+                !isInternalSystemService($0.bundleID)
+        }.sorted { lhs, rhs in
             let a = model.usage[lhs.id]?.totalBytes ?? -1
             let b = model.usage[rhs.id]?.totalBytes ?? -1
             if a != b { return largestFirst ? a > b : a < b }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
+        rebuildSearchResults()
+    }
+
+    private func rebuildSearchResults() {
+        let query = appliedSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        var sections = SearchSections()
+        for app in orderedApps {
+            if !query.isEmpty &&
+                !app.name.localizedCaseInsensitiveContains(query) &&
+                !app.bundleID.localizedCaseInsensitiveContains(query) &&
+                !app.path.localizedCaseInsensitiveContains(query) {
+                continue
+            }
+            if isUnknownContainer(app) {
+                sections.unidentified.append(app)
+            } else if app.name == app.bundleID {
+                sections.bundleIDOnly.append(app)
+            } else {
+                sections.named.append(app)
+            }
+        }
+        searchSections = sections
     }
 
     // A data-container UUID is not an App identifier. Keep these entries
     // separate from apps with a verifiable Bundle ID or display name.
     private var namedApps: [WCTarget] {
-        filteredApps.filter {
-            !isUnknownContainer($0) && $0.name != $0.bundleID
-        }
+        searchSections.named
     }
 
     private var bundleIDOnlyApps: [WCTarget] {
-        filteredApps.filter {
-            !isUnknownContainer($0) && $0.name == $0.bundleID
-        }
+        searchSections.bundleIDOnly
     }
 
     private var unidentifiedContainers: [WCTarget] {
-        filteredApps.filter(isUnknownContainer)
+        searchSections.unidentified
     }
 
     private var displayedApps: [WCTarget] {
-        namedApps + ((showingBundleIDOnly || !searchText.isEmpty) ? bundleIDOnlyApps : [])
-            + ((showingUnidentifiedContainers || !searchText.isEmpty) ? unidentifiedContainers : [])
+        namedApps + ((showingBundleIDOnly || !appliedSearchText.isEmpty) ? bundleIDOnlyApps : [])
+            + ((showingUnidentifiedContainers || !appliedSearchText.isEmpty) ? unidentifiedContainers : [])
     }
 
     private func isUnknownContainer(_ app: WCTarget) -> Bool {
@@ -123,6 +146,16 @@ struct ContentView: View {
             .scrollDismissesKeyboard(.interactively)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
                         prompt: "搜索 App")
+            .task(id: searchText) {
+                // The keyboard remains responsive; filter once after a brief
+                // typing pause, instead of rebuilding every list on each key.
+                if !searchText.isEmpty {
+                    try? await Task.sleep(nanoseconds: 160_000_000)
+                    guard !Task.isCancelled else { return }
+                }
+                appliedSearchText = searchText
+                rebuildSearchResults()
+            }
             .navigationTitle("App 缓存清理")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -188,8 +221,16 @@ struct ContentView: View {
             }
             .onChange(of: model.apps) { _, currentApps in
                 selectedIDs.formIntersection(Set(currentApps.map(\.id)))
+                rebuildOrderedApps()
+            }
+            .onChange(of: model.excludedPaths) { _, _ in rebuildOrderedApps() }
+            .onChange(of: largestFirst) { _, _ in rebuildOrderedApps() }
+            .onChange(of: availableSize) { _, _ in rebuildOrderedApps() }
+            .onChange(of: model.busy) { _, busy in
+                if !busy { rebuildOrderedApps() }
             }
             .task {
+                rebuildOrderedApps()
                 #if targetEnvironment(simulator)
                 // Simulator-only layout QA. Keep the production discovery path
                 // untouched and avoid privileged scans during UI screenshots.
@@ -340,7 +381,7 @@ struct ContentView: View {
 
     private var bundleIDOnlySection: some View {
         Section {
-            if showingBundleIDOnly || !searchText.isEmpty {
+            if showingBundleIDOnly || !appliedSearchText.isEmpty {
                 ForEach(bundleIDOnlyApps) { app in
                     appRow(app)
                 }
@@ -356,7 +397,7 @@ struct ContentView: View {
             .accessibilityValue(showingBundleIDOnly ? "已展开" : "已折叠")
             .accessibilityHint(showingBundleIDOnly ? "双击收起此分组" : "双击展开此分组")
         } footer: {
-            if showingBundleIDOnly || !searchText.isEmpty {
+            if showingBundleIDOnly || !appliedSearchText.isEmpty {
                 Text("这些项目有 Bundle ID，但系统未返回名称；可尝试联网补全。")
             }
         }
@@ -364,7 +405,7 @@ struct ContentView: View {
 
     private var unidentifiedContainerSection: some View {
         Section {
-            if showingUnidentifiedContainers || !searchText.isEmpty {
+            if showingUnidentifiedContainers || !appliedSearchText.isEmpty {
                 ForEach(unidentifiedContainers) { app in
                     appRow(app, unidentified: true)
                 }
@@ -380,7 +421,7 @@ struct ContentView: View {
             .accessibilityValue(showingUnidentifiedContainers ? "已展开" : "已折叠")
             .accessibilityHint(showingUnidentifiedContainers ? "双击收起此分组" : "双击展开此分组")
         } footer: {
-            if showingUnidentifiedContainers || !searchText.isEmpty {
+            if showingUnidentifiedContainers || !appliedSearchText.isEmpty {
                 Text("UUID 不是 App 名称。无法确认归属时请勿清理。")
             }
         }
@@ -470,8 +511,7 @@ struct ContentView: View {
     }
 
     private func sizeText(_ bytes: Int64) -> String {
-        if bytes == 0 { return "0 KB" }
-        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        CleanerSizeText.bytes(bytes)
     }
 
     private func contentIcon(_ symbol: String) -> some View {
