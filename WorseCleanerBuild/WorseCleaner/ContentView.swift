@@ -5,6 +5,7 @@ import UIKit
 // selection menu, bulk action, and confirmation. The backend is worse_query.
 struct ContentView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
     private static let hiddenServiceIDs: Set<String> = [
         "com.apple.GameOverlayUI", "com.apple.HeadphoneProxService",
         "com.apple.PassbookUIService", "com.apple.PDUIApp",
@@ -27,6 +28,8 @@ struct ContentView: View {
     @State private var confirmingOnlineNames = false
     @State private var showingBundleIDOnly = false
     @State private var showingUnidentifiedContainers = false
+    @State private var deviceStorage: CleanerDeviceStorage?
+    @State private var deviceStorageRefreshRevision = 0
     @ScaledMetric(relativeTo: .body) private var progressSize: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var shieldSize: CGFloat = 16
 
@@ -176,7 +179,10 @@ struct ContentView: View {
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     sortMenu
-                    Button { model.loadApps() } label: {
+                    Button {
+                        refreshDeviceStorage()
+                        model.loadApps()
+                    } label: {
                         CleanerToolbarSymbol(name: "arrow.clockwise")
                     }
                     .disabled(model.busy)
@@ -239,10 +245,17 @@ struct ContentView: View {
             .onChange(of: largestFirst) { _, _ in rebuildOrderedApps() }
             .onChange(of: availableSize) { _, _ in rebuildOrderedApps() }
             .onChange(of: model.busy) { _, busy in
-                if !busy { rebuildOrderedApps() }
+                if !busy {
+                    rebuildOrderedApps()
+                    refreshDeviceStorage()
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { refreshDeviceStorage() }
             }
             .task {
                 rebuildOrderedApps()
+                refreshDeviceStorage()
                 #if targetEnvironment(simulator)
                 // Simulator-only layout QA. Keep the production discovery path
                 // untouched and avoid privileged scans during UI screenshots.
@@ -289,6 +302,8 @@ struct ContentView: View {
                     }
                 }
                 .padding(.top, 4)
+
+                storageCapacityRow
 
                 Divider()
 
@@ -369,6 +384,53 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             Text(sizeText(selectedSize))
                 .font(.headline.monospacedDigit())
+        }
+    }
+
+    private var storageCapacityRow: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("本机储存")
+                        .foregroundStyle(.secondary)
+                    deviceStorageCapacityText
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("本机储存")
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    deviceStorageCapacityText
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+        }
+        .font(.footnote)
+        .monospacedDigit()
+    }
+
+    private var deviceStorageCapacityText: Text {
+        guard let deviceStorage else {
+            return Text("容量读取中…").foregroundColor(.secondary)
+        }
+        return Text("可用 ").foregroundColor(.secondary)
+            + Text(sizeText(deviceStorage.available))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+            + Text(" / 总计 \(sizeText(deviceStorage.total))")
+                .foregroundColor(.secondary)
+    }
+
+    private func refreshDeviceStorage() {
+        deviceStorageRefreshRevision += 1
+        let revision = deviceStorageRefreshRevision
+        Task {
+            let latest = await Task.detached(priority: .utility) {
+                CleanerDeviceStorage.read()
+            }.value
+            guard revision == deviceStorageRefreshRevision else { return }
+            deviceStorage = latest
         }
     }
 
@@ -536,6 +598,35 @@ struct ContentView: View {
         // These are system helper services, not independently launchable apps.
         // They stay hidden rather than being offered as cache-cleaning targets.
         Self.hiddenServiceIDs.contains(bundleID)
+    }
+}
+
+private struct CleanerDeviceStorage: Sendable {
+    let available: Int64
+    let total: Int64
+
+    static func read() -> Self? {
+        let home = NSHomeDirectory()
+        let url = URL(fileURLWithPath: home, isDirectory: true)
+        let keys: Set<URLResourceKey> = [
+            .volumeTotalCapacityKey,
+            .volumeAvailableCapacityForImportantUsageKey,
+            .volumeAvailableCapacityKey
+        ]
+        if let values = try? url.resourceValues(forKeys: keys),
+           let total = values.volumeTotalCapacity.map(Int64.init),
+           let available = values.volumeAvailableCapacityForImportantUsage
+                ?? values.volumeAvailableCapacity.map(Int64.init),
+           total > 0, available >= 0 {
+            return Self(available: available, total: total)
+        }
+
+        // Compatibility fallback when a resource capacity key is unavailable.
+        guard let attributes = try? FileManager.default.attributesOfFileSystem(forPath: home),
+              let total = (attributes[.systemSize] as? NSNumber)?.int64Value,
+              let available = (attributes[.systemFreeSize] as? NSNumber)?.int64Value,
+              total > 0, available >= 0 else { return nil }
+        return Self(available: available, total: total)
     }
 }
 
