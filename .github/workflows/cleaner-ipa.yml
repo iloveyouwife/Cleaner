@@ -165,6 +165,10 @@ jobs:
           sleep 3
           xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-light.png
           xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureLongRows
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/long-rows-light.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
           xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedSelection
           sleep 3
           xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-selected-light.png
@@ -174,11 +178,19 @@ jobs:
           sleep 3
           xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-dark.png
           xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+          xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureLongRows
+          sleep 3
+          xcrun simctl io "$simulator_id" screenshot ui-screenshots/long-rows-dark.png
+          xcrun simctl terminate "$simulator_id" com.example.worsecleaner
           xcrun simctl ui "$simulator_id" appearance light
           if xcrun simctl ui "$simulator_id" content_size accessibility-medium; then
             xcrun simctl launch "$simulator_id" com.example.worsecleaner -capturePopulatedHome
             sleep 3
             xcrun simctl io "$simulator_id" screenshot ui-screenshots/populated-accessibility-medium.png
+            xcrun simctl terminate "$simulator_id" com.example.worsecleaner
+            xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureLongRows
+            sleep 3
+            xcrun simctl io "$simulator_id" screenshot ui-screenshots/long-rows-accessibility-medium.png
             xcrun simctl terminate "$simulator_id" com.example.worsecleaner
             xcrun simctl launch "$simulator_id" com.example.worsecleaner -captureAdvancedSettings
             sleep 3

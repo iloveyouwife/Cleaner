@@ -235,7 +235,9 @@ struct ContentView: View {
                 // Simulator-only layout QA. Keep the production discovery path
                 // untouched and avoid privileged scans during UI screenshots.
                 let arguments = ProcessInfo.processInfo.arguments
-                if arguments.contains(where: { $0.hasPrefix("-capturePopulated") }) {
+                if arguments.contains("-captureLongRows") {
+                    CleanerScreenshotFixtures.install(into: model, longNamesOnly: true)
+                } else if arguments.contains(where: { $0.hasPrefix("-capturePopulated") }) {
                     CleanerScreenshotFixtures.install(into: model)
                     if arguments.contains("-capturePopulatedSelection") {
                         selectedIDs = Set(model.apps.prefix(2).map(\.id))

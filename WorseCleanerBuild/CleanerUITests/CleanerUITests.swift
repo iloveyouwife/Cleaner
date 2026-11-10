@@ -57,6 +57,23 @@ final class CleanerUITests: XCTestCase {
         capture("more-menu")
     }
 
+    func testLongNamesKeepCacheSizeAccessible() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-captureLongRows"]
+        app.launch()
+        let zeroRow = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "LimitedModeShieldApp，缓存 0 KB")
+        ).firstMatch
+        // List rows may be lazily instantiated below the initial viewport.
+        for _ in 0..<5 {
+            if zeroRow.exists { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(zeroRow.waitForExistence(timeout: 5),
+                      "A long title must retain its exact zero-size amount.")
+        capture("long-names-and-amounts")
+    }
+
     func testAdvancedSettingsRowsAndDiagnostics() {
         let app = XCUIApplication()
         app.launchArguments = ["-captureAdvancedSettings"]

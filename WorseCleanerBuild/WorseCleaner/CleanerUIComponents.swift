@@ -212,6 +212,11 @@ struct CleanerAppRow: View {
             .font(.footnote.monospacedDigit())
             .foregroundStyle(usage == nil ? Color(uiColor: .tertiaryLabel) : Color.secondary)
             .lineLimit(1)
+            // The measured size is essential information. Its natural width
+            // must be reserved before the potentially long app title is laid
+            // out; otherwise SwiftUI can squeeze e.g. "0 KB" down to "(...".
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(2)
     }
 
     var body: some View {
@@ -222,6 +227,7 @@ struct CleanerAppRow: View {
                         .font(.body.weight(.medium))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
+                        .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(detail)
                         .font(.footnote.monospaced())
@@ -229,12 +235,18 @@ struct CleanerAppRow: View {
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                         .truncationMode(.middle)
                     if dynamicTypeSize.isAccessibilitySize {
-                        cacheLabel
+                        // Put the amount on its own line at Accessibility
+                        // sizes, keeping it fully readable without fighting
+                        // the selection control for horizontal space.
+                        HStack {
+                            Spacer(minLength: 0)
+                            cacheLabel
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
-                .layoutPriority(1)
-
-                Spacer(minLength: 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(0)
 
                 if !dynamicTypeSize.isAccessibilitySize {
                     cacheLabel
@@ -244,6 +256,8 @@ struct CleanerAppRow: View {
                     .font(.title3)
                     .foregroundStyle(selected ? Color.accentColor : Color.secondary)
                     .frame(width: selectionSize, height: selectionSize)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(3)
                     .accessibilityHidden(true)
             }
             .padding(.vertical, rowVerticalInset)

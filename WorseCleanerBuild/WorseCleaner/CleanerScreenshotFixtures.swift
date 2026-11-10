@@ -5,8 +5,8 @@ import Foundation
 /// No discovery, cache reading, or deletion occurs in this fixture.
 @MainActor
 enum CleanerScreenshotFixtures {
-    static func install(into model: WorseCleanerModel) {
-        let entries: [(name: String, bundleID: String, bytes: Int64)] = [
+    static func install(into model: WorseCleanerModel, longNamesOnly: Bool = false) {
+        let regularEntries: [(name: String, bundleID: String, bytes: Int64)] = [
             ("微信", "com.tencent.xin", 228_500_000),
             ("抖音", "com.ss.iphone.ugc.Aweme", 215_400_000),
             ("QQ", "com.tencent.mqq", 98_200_000),
@@ -16,6 +16,14 @@ enum CleanerScreenshotFixtures {
             ("一款名称非常长的常用测试应用程序", "com.example.long-name.sample", 16_300_000),
             ("com.example.unresolved-name", "com.example.unresolved-name", 10_100_000)
         ]
+        let longEntries: [(name: String, bundleID: String, bytes: Int64)] = [
+            ("LimitedModeShieldApp", "com.apple.appManagementFeatures.Restrictions", 0),
+            ("LocalAuthenticationUIService", "com.apple.LocalAuthenticationUIService", 125_400_000),
+            ("一款名称非常长的常用测试应用程序，必须允许换行", "com.example.a-very-long-chinese-app-name", 6_300_000),
+            ("MagnifierAngelWithAnUnusuallyLongDisplayName", "com.apple.accessibility.MagnifierAngel", 1_203_500_000),
+            ("一个名字长到两行也装不下的软件名称需要末尾省略显示", "com.example.another-excessively-long-bundle-identifier", 0)
+        ]
+        let entries = longNamesOnly ? longEntries : regularEntries
 
         model.restoreExcluded(model.excludedPaths)
         var targets: [WCTarget] = []

@@ -11,7 +11,7 @@
 3. **权限检查：** 读取安装后实际生效的 App Group entitlement，要求用户确认所选组是 Cleaner 独占组；尝试获取目标容器的临时访问权限并验证目录可读性。仅在缓存目录因 `EPERM` 被拒绝时，额外尝试 `Caches` 或 `tmp` 的路径限定访问授权。
 4. **受限扫描：** 只统计 `/var/mobile/Containers/Data/Application/<UUID>/Library/Caches` 和同一容器内的 `tmp`。无法读取时报告错误，不以 `0 KB` 代替权限失败。
 5. **选择性清理：** 仅在扫描成功且用户明确勾选、确认后操作；只删除上述缓存目录内的内容，保留根目录、Documents 和 App 本身。使用描述符相对操作及 `O_NOFOLLOW` 限制路径穿越。
-6. **界面功能：** 搜索、排序、选择与排除 App；高级设置、手动发现与诊断；可选 Apple 商店公开名称查询。界面使用 SwiftUI 原生菜单和 SF Symbols。
+6. **界面功能：** 搜索、排序、选择与排除 App；高级设置、手动发现与诊断；可选 Apple 商店公开名称查询。界面使用 SwiftUI 原生菜单和 SF Symbols。App 列表优先保留右侧缓存容量及选择状态的空间，过长名称最多两行、Bundle ID 中间省略；无障碍大字体下容量单独成行。
 
 ## 签名和 App Group
 
