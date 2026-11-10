@@ -37,6 +37,7 @@ on:
       - worse-query-cleaner-v48
       - worse-query-cleaner-v49
       - worse-query-cleaner-v51
+      - worse-query-cleaner-v52
   workflow_dispatch:
 
 permissions:
@@ -199,7 +200,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Cleaner-layout-preview-v51
+          name: Cleaner-layout-preview-v52
           path: |
             ui-screenshots/*.png
             ui-menu-screenshots/**

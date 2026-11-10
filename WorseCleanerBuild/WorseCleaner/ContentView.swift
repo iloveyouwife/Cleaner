@@ -442,16 +442,10 @@ struct ContentView: View {
             Button {
                 showingExcluded = true
             } label: {
-                Label {
-                    Text(model.excludedPaths.isEmpty
-                         ? "管理已排除 App"
-                         : "管理已排除 App（\(model.excludedPaths.count)）")
-                } icon: {
-                    // Same SF Symbol as the exclude action; rotating the whole
-                    // circle turns its centered dash into an equal-length slash.
-                    Image(systemName: "minus.circle")
-                        .rotationEffect(.degrees(-45))
-                }
+                Label(model.excludedPaths.isEmpty
+                      ? "管理已排除 App"
+                      : "管理已排除 App（\(model.excludedPaths.count)）",
+                      systemImage: "hand.raised.circle")
             }
         } label: {
             CleanerToolbarSymbol(name: "checklist")
@@ -464,8 +458,8 @@ struct ContentView: View {
     private var sortMenu: some View {
         Menu {
             Picker("排序方式", selection: $largestFirst) {
-                Label("缓存从大到小", systemImage: "arrow.down").tag(true)
-                Label("缓存从小到大", systemImage: "arrow.up").tag(false)
+                Label("缓存从大到小", systemImage: "arrow.down.circle").tag(true)
+                Label("缓存从小到大", systemImage: "arrow.up.circle").tag(false)
             }
         } label: {
             CleanerToolbarSymbol(name: "arrow.up.arrow.down")
