@@ -2,43 +2,62 @@ import Foundation
 import Darwin
 
 enum WCPathDiscovery {
-    // The source project calls this slow and non-exhaustive. Never describe
-    // a capped inode walk as a complete installed-app inventory.
-    static let maximumInodes: UInt64 = 5_000_000
+    // Bundle/Application may be on a different volume, where an unprivileged
+    // app cannot create an inode probe. Names remain best-effort; a missing
+    // bundle path must never hide a data container found on the Data volume.
+    private static let bundleLookupCap: UInt64 = 5_000_000
+    private static let bundleCacheKey = "wc.bundleRootIndex"
+    private static let bundleCacheTimeKey = "wc.bundleRootIndexTime"
 
-    static func enumerateRoots() throws -> (data: [WCTarget], bundles: [String], capped: Bool) {
-        let baseline = FileManager.default.temporaryDirectory
-            .appendingPathComponent(".wc-inode-\(UUID().uuidString)")
-        try Data([0]).write(to: baseline)
-        defer { try? FileManager.default.removeItem(at: baseline) }
-        var information = stat()
-        guard stat(baseline.path, &information) == 0 else {
-            throw WCFailure.inaccessible("临时 inode 基准", errno)
+    static func enumerateRoots(
+        forceFull: Bool = false,
+        progress: ((UInt64, UInt64) -> Void)? = nil
+    ) throws -> (data: [WCTarget], bundles: [String], incremental: Bool,
+                 scannedInodes: UInt64, extensionCount: Int, completeBound: Bool) {
+        guard let result = WCDiscoverDataContainers(forceFull, progress) else {
+            throw WCFailure.inaccessible("文件系统 inode 范围", errno)
         }
-        let baselineInode = UInt64(information.st_ino)
-        // Do not use an inode from the Data volume as the upper bound for a
-        // possibly different Bundle volume. Both volumes receive the same
-        // explicit safety cap, and results remain best-effort.
-        let cap = maximumInodes
-        let bundleRoot = "/private/var/containers/Bundle/Application/"
-        let roots = pathleak_multiple([
-            "/private/var/mobile/Containers/Data/Application",
-            "/private/var/containers/Bundle/Application"
-        ], cap) ?? []
-        let targets = roots.compactMap { path -> WCTarget? in
+        let appPaths = result["apps"] as? [String] ?? []
+        let extensionPaths = result["extensions"] as? [String] ?? []
+        let extensionSet = Set(extensionPaths)
+        let targets: [WCTarget] = (appPaths + extensionPaths).compactMap { path in
             guard WCFileAccess.isValidApplicationContainer(path) else { return nil }
             let uuid = URL(fileURLWithPath: path).lastPathComponent
+            let title = extensionSet.contains(path) ? "扩展容器 " : "App 容器 "
             return try? WCTarget(
                 bundleID: "容器 " + String(uuid.prefix(8)),
-                name: "App 容器 " + String(uuid.prefix(8)),
+                name: title + String(uuid.prefix(8)),
                 path: path
             )
         }
-        let bundles = roots.filter { path in
-            guard path.hasPrefix(bundleRoot) else { return false }
-            let suffix = String(path.dropFirst(bundleRoot.count))
-            return !suffix.contains("/") && UUID(uuidString: suffix) != nil
+
+        let defaults = UserDefaults.standard
+        let previous = defaults.stringArray(forKey: bundleCacheKey) ?? []
+        let age = Date().timeIntervalSince1970 - defaults.double(forKey: bundleCacheTimeKey)
+        let bundleRoots: [String]
+        if !forceFull, !previous.isEmpty, age >= 0, age < 24 * 3600 {
+            bundleRoots = previous
+        } else {
+            // The Data-volume pass is done; make this second, optional lookup
+            // visible instead of leaving the UI apparently stuck at 100%.
+            progress?(0, 0)
+            let prefix = "/private/var/containers/Bundle/Application/"
+            let found = pathleak_multiple(
+                ["/private/var/containers/Bundle/Application"], bundleLookupCap
+            ) ?? []
+            bundleRoots = found.filter { path in
+                guard path.hasPrefix(prefix) else { return false }
+                let uuid = String(path.dropFirst(prefix.count))
+                return !uuid.contains("/") && UUID(uuidString: uuid) != nil
+            }
+            defaults.set(bundleRoots, forKey: bundleCacheKey)
+            defaults.set(Date().timeIntervalSince1970, forKey: bundleCacheTimeKey)
         }
-        return (targets, bundles, baselineInode > cap)
+
+        return (targets, bundleRoots,
+                (result["incremental"] as? NSNumber)?.boolValue ?? false,
+                (result["scanned"] as? NSNumber)?.uint64Value ?? 0,
+                extensionPaths.count,
+                (result["completeBound"] as? NSNumber)?.boolValue ?? false)
     }
 }

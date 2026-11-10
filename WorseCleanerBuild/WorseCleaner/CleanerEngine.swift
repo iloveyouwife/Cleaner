@@ -42,7 +42,7 @@ enum WCFailure: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidTarget:
-            return "路径必须是 /var/mobile/Containers/Data/Application/ 后面紧跟 UUID 的 App 容器根目录。"
+            return "路径必须是 App 或扩展数据容器根目录，且末尾紧跟 UUID。"
         case .noAppGroup:
             return "当前签名未提供所选 App Group 的访问权限。请检查已签名 IPA 的 entitlements 和 provisioning profile。"
         case .unavailable(let code):
@@ -70,17 +70,14 @@ enum WCFileAccess {
 
     static func isValidApplicationContainer(_ rawPath: String) -> Bool {
         let path = URL(fileURLWithPath: rawPath).standardizedFileURL.path
-        let prefix = "/var/mobile/Containers/Data/Application/"
-        let privatePrefix = "/private" + prefix
-        let uuid: String
-        if path.hasPrefix(prefix) {
-            uuid = String(path.dropFirst(prefix.count))
-        } else if path.hasPrefix(privatePrefix) {
-            uuid = String(path.dropFirst(privatePrefix.count))
-        } else {
-            return false
+        for root in ["Application", "PluginKitPlugin"] {
+            let prefix = "/var/mobile/Containers/Data/\(root)/"
+            for fullPrefix in [prefix, "/private" + prefix] where path.hasPrefix(fullPrefix) {
+                let uuid = String(path.dropFirst(fullPrefix.count))
+                return !uuid.contains("/") && UUID(uuidString: uuid) != nil
+            }
         }
-        return !uuid.contains("/") && UUID(uuidString: uuid) != nil
+        return false
     }
 
     private static func withLease<T>(
@@ -98,7 +95,24 @@ enum WCFileAccess {
         // It does not create the foreign target directory.
         let handle = worse_query(target.path, groupID, false, true)
         guard handle > 0 else { throw WCFailure.unavailable(handle) }
-        defer { worse_query_release(handle) }
+        var scopedHandles: [Int64] = []
+        defer {
+            for token in scopedHandles.reversed() { worse_query_release(token) }
+            worse_query_release(handle)
+        }
+        // Some containers grant their root but not the two cache locations.
+        // Retry an EPERM *only* for the allowed cache directories; never
+        // request a grant for Documents, private metadata, or system paths.
+        for suffix in ["Library/Caches", "tmp"] {
+            let cachePath = target.path + "/" + suffix
+            let descriptor = open(cachePath, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            if descriptor >= 0 {
+                close(descriptor)
+            } else if errno == EPERM {
+                let scoped = worse_query(cachePath, groupID, false, true)
+                if scoped > 0 { scopedHandles.append(scoped) }
+            }
+        }
         return try body()
     }
 

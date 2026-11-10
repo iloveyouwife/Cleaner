@@ -4,9 +4,9 @@
 
 ## 目前的实现
 
-1. **容器发现：** 先尝试系统可用的 MCM / LaunchServices 只读查询，再通过 `pathleak` 进行有限的 inode 发现；可手动添加已知容器 UUID 路径。发现结果不保证完整。
+1. **容器发现：** 先尝试系统可用的 MCM / LaunchServices 只读查询，再使用动态 inode 上限发现普通 App 和 PluginKit 扩展容器；采用最多六线程分块扫描及本地增量索引，温度升高时减少工作线程，手动深度发现会执行完整重扫。未将内部守护进程和系统数据容器纳入清理范围。结果仍不保证绝对完整。
 2. **容器识别：** 尝试读取可访问的元数据、保存状态或偏好文件，结合本机名称查询与少量离线名称映射。无法确认归属时保留 Bundle ID 或 UUID，并明确归为未知容器。
-3. **权限检查：** 读取安装后实际生效的 App Group entitlement，要求用户确认所选组是 Cleaner 独占组；尝试获取目标容器的临时访问权限并验证目录可读性。
+3. **权限检查：** 读取安装后实际生效的 App Group entitlement，要求用户确认所选组是 Cleaner 独占组；尝试获取目标容器的临时访问权限并验证目录可读性。仅在缓存目录因 `EPERM` 被拒绝时，额外尝试 `Caches` 或 `tmp` 的路径限定访问授权。
 4. **受限扫描：** 只统计 `/var/mobile/Containers/Data/Application/<UUID>/Library/Caches` 和同一容器内的 `tmp`。无法读取时报告错误，不以 `0 KB` 代替权限失败。
 5. **选择性清理：** 仅在扫描成功且用户明确勾选、确认后操作；只删除上述缓存目录内的内容，保留根目录、Documents 和 App 本身。使用描述符相对操作及 `O_NOFOLLOW` 限制路径穿越。
 6. **界面功能：** 搜索、排序、选择与排除 App；高级设置、手动发现与诊断；可选 Apple 商店公开名称查询。界面使用 SwiftUI 原生菜单和 SF Symbols。
@@ -36,12 +36,13 @@ GitHub Actions 工作流：[Build Cleaner unsigned IPA](../.github/workflows/cle
 - 没有使用旧项目的配对保存、钥匙串配对、AFC/HouseArrest 或 AirTraffic 流程。
 - 不提供 root、越狱、永久签名、系统缓存全清、跨 App 任意目录读写。
 - iOS 沙盒可能拒绝隐藏元数据或某些缓存目录；实际是否可读写以诊断和扫描结果为准。
-- `pathleak` 的发现范围有限，耗时可能达到数分钟；它不是完整的 App 列表。
+- 首次完整 inode 扫描仍可能耗时数分钟甚至更久，后续通过本地缓存、inode 校验和增量扫描加快速度。完整扫描不能保证所有路径均可解析；无法读取的容器不会被当作可清理项目。
 - 联网补全名称仅在用户手动操作后向 Apple 查询已知 Bundle ID，每批最多 80 个；未知 UUID 不能因此推导出所属 App。
 
 ## 来源及许可证
 
 - 临时访问入口与路径发现：[forcequitOS/worse_query](https://github.com/forcequitOS/worse_query)（GPL-3.0-or-later），保留相应源文件及署名。
+- 容器 inode 分块扫描与索引设计参考：[kolbicz/WQFiles](https://github.com/kolbicz/WQFiles)（GPL-3.0-or-later）；本项目只扫描普通 App 与扩展数据容器，不包含 WQFiles 的系统文件浏览或编辑功能。
 - 有限缓存扫描与清理算法：[YangJiiii/3105](https://github.com/YangJiiii/3105)（GPL-3.0-or-later），见 `LimitedCleanerService.swift` 的来源说明。
 - 一部分只读容器信息查询参考 3105；未复制其完整权限提升流程。
 

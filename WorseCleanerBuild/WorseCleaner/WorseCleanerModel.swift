@@ -21,6 +21,12 @@ final class WorseCleanerModel: ObservableObject {
     private let confirmedGroupKey = "wc.confirmedDedicatedGroup"
     private var discoveredBundleRoots: [String] = []
     private var lastPreparedGroup = ""
+    private var discoveryPercent = 0
+
+    private static func pathIdentity(_ path: String) -> String {
+        path.hasPrefix("/private/var/")
+            ? String(path.dropFirst("/private".count)) : path
+    }
 
     func setGroupConfirmed(_ value: Bool) {
         groupConfirmed = value && appGroupReady
@@ -107,20 +113,43 @@ final class WorseCleanerModel: ObservableObject {
     func deepDiscoverApps(automaticallyScan: Bool = false) {
         guard !busy else { return }
         busy = true
-        status = "正在使用 worse_query 项目的 pathleak 枚举容器 inode；可能需要几分钟，结果不保证完整。"
+        discoveryPercent = 0
+        let forceFull = !automaticallyScan
+        status = forceFull
+            ? "正在完整发现 App 与扩展容器；首次全量扫描可能较久。"
+            : "正在发现 App 与扩展容器；已有索引时仅扫描新增 inode。"
         queue.async {
-            let result = Result { try WCPathDiscovery.enumerateRoots() }
+            let result = Result {
+                try WCPathDiscovery.enumerateRoots(forceFull: forceFull) { done, total in
+                    if total == 0 {
+                        DispatchQueue.main.async {
+                            if self.busy { self.status = "正在解析安装包名称索引……" }
+                        }
+                        return
+                    }
+                    let percentage = Int(done * 100 / total)
+                    DispatchQueue.main.async {
+                        if self.busy && percentage > self.discoveryPercent {
+                            self.discoveryPercent = percentage
+                            self.status = "正在发现容器：\(percentage)%（\(done)/\(total) inode）"
+                        }
+                    }
+                }
+            }
             DispatchQueue.main.async {
                 self.busy = false
                 switch result {
                 case .success(let result):
                     let found = result.data
-                    let capped = result.capped
                     self.discoveredBundleRoots = result.bundles
-                    let existing = Set(self.apps.map(\.path))
-                    self.apps.append(contentsOf: found.filter { !existing.contains($0.path) })
-                    self.status = "inode 枚举发现 \(found.count) 个 App 数据目录、\(result.bundles.count) 个安装目录，当前列表 \(self.apps.count) 项"
-                        + (capped ? "；已达到 500 万 inode 上限，可能漏掉 App。" : "。")
+                    let existing = Set(self.apps.map { Self.pathIdentity($0.path) })
+                    self.apps.append(contentsOf: found.filter {
+                        !existing.contains(Self.pathIdentity($0.path))
+                    })
+                    self.status = "\(result.incremental ? "增量" : "完整")扫描 \(result.scannedInodes) 个 inode，发现 \(found.count - result.extensionCount) 个 App、\(result.extensionCount) 个扩展容器；当前列表 \(self.apps.count) 项。"
+                    if !result.completeBound {
+                        self.status += " 扫描结束时 inode 仍在增长或无法复核范围，列表可能不完整。"
+                    }
                     if automaticallyScan && self.appGroupReady && self.groupConfirmed {
                         self.scanAll()
                     }

@@ -2,3 +2,4 @@
 #import "WCCatalogBridge.h"
 #import "WCSignedGroups.h"
 #import "pathleak.h"
+#import "WCContainerDiscovery.h"
