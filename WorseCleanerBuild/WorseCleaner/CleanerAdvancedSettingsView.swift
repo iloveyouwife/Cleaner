@@ -57,7 +57,7 @@ struct CleanerAdvancedSettingsView: View {
                         }
                         .disabled(model.busy)
 
-                        Toggle("确认使用此 App Group", isOn: Binding(
+                        Toggle("Cleaner", isOn: Binding(
                             get: { model.groupConfirmed },
                             set: { model.setGroupConfirmed($0) }
                         ))
@@ -76,7 +76,7 @@ struct CleanerAdvancedSettingsView: View {
                     } label: {
                         CleanerSettingsLabel(symbol: "arrow.triangle.2.circlepath",
                                              title: "深度发现 App 容器",
-                                             subtitle: "按 inode 搜索 · 可能需要几分钟")
+                                             subtitle: "按 inode 搜索，可能需要几分钟")
                         .padding(.vertical, 5)
                         .contentShape(Rectangle())
                     }
