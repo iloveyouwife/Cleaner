@@ -25,7 +25,7 @@ final class WorseCleanerModel: ObservableObject {
     private var lastPreparedGroup = ""
     private var discoveryPercent = 0
 
-    // Reuse only verified App-name and container mappings for ten minutes.
+    // Reuse only verified App-name and container mappings for three minutes.
     // Cache sizes and access permissions are NEVER reused: scanAll always
     // measures Caches/tmp again, and cleanSelected always revalidates paths.
     private struct CatalogMemo {
@@ -34,8 +34,10 @@ final class WorseCleanerModel: ObservableObject {
         let targetIDs: Set<String>
         let finishedAt: TimeInterval
     }
-    private static let catalogReuseSeconds: TimeInterval = 600
+    private static let catalogReuseSeconds: TimeInterval = 180
     private var catalogMemo: CatalogMemo?
+    private var lastLaunchServicesStamp: WCLaunchServicesStamp?
+    private var completedCacheScan = false
 
     private static func pathIdentity(_ path: String) -> String {
         path.hasPrefix("/private/var/")
@@ -71,6 +73,8 @@ final class WorseCleanerModel: ObservableObject {
         appGroupReady = !groupID.isEmpty && available.contains(groupID)
         if lastPreparedGroup != groupID {
             catalogMemo = nil
+            lastLaunchServicesStamp = nil
+            completedCacheScan = false
             usage.removeAll()
             scannedAppCount = 0
             lastPreparedGroup = groupID
@@ -83,6 +87,8 @@ final class WorseCleanerModel: ObservableObject {
         guard !busy else { return }
         // Explicit App-list refresh must re-read current app identities.
         catalogMemo = nil
+        lastLaunchServicesStamp = nil
+        completedCacheScan = false
         refreshSigning()
         busy = true
         status = "正在读取已安装 App 的容器列表……"
@@ -158,6 +164,8 @@ final class WorseCleanerModel: ObservableObject {
     func deepDiscoverApps(automaticallyScan: Bool = false) {
         guard !busy else { return }
         catalogMemo = nil
+        lastLaunchServicesStamp = nil
+        completedCacheScan = false
         busy = true
         discoveryPercent = 0
         let forceFull = !automaticallyScan
@@ -213,31 +221,47 @@ final class WorseCleanerModel: ObservableObject {
             return
         }
         busy = true
-        let targets = apps.filter { !excludedPaths.contains($0.path) }
+        let previousApps = apps
+        let excluded = excludedPaths
         let selectedGroup = groupID
-        let targetIDs = Set(targets.map(\.id))
-        let uptime = ProcessInfo.processInfo.systemUptime
-        let recentCatalog: WCAppCatalog?
-        if let memo = catalogMemo,
-           memo.groupID == selectedGroup,
-           memo.targetIDs == targetIDs,
-           memo.value.containers.count >= 2,
-           uptime >= memo.finishedAt,
-           uptime - memo.finishedAt < Self.catalogReuseSeconds {
-            recentCatalog = memo.value
-        } else {
-            recentCatalog = nil
-        }
+        let previousCatalog = catalogMemo
+        let shouldRecheckApps = completedCacheScan
+        let previousStamp = lastLaunchServicesStamp
         let bundleRoots = discoveredBundleRoots
         let lsStore = discoveredLSStore
         let discoveryInfo = discoveryDiagnostics
         scannedAppCount = 0
         status = "正在检查已发现 App 的缓存权限……"
         queue.async {
+            // This is a lightweight MCM lookup plus LS file metadata check,
+            // not the expensive full-volume inode discovery.
+            let changes = shouldRecheckApps
+                ? WCPathDiscovery.quickRecheckApps(
+                    existing: previousApps, groupID: selectedGroup,
+                    storePath: lsStore, previousStamp: previousStamp
+                )
+                : nil
+            let currentApps = changes?.apps ?? previousApps
+            let targets = currentApps.filter { !excluded.contains($0.path) }
+            let targetIDs = Set(targets.map(\.id))
+            let uptime = ProcessInfo.processInfo.systemUptime
+            let recentCatalog: WCAppCatalog?
+            if let memo = previousCatalog,
+               changes?.changed != true,
+               memo.groupID == selectedGroup,
+               memo.targetIDs == targetIDs,
+               memo.value.containers.count >= 2,
+               uptime >= memo.finishedAt,
+               uptime - memo.finishedAt < Self.catalogReuseSeconds {
+                recentCatalog = memo.value
+            } else {
+                recentCatalog = nil
+            }
+            let effectiveLSStore = changes?.storePath ?? lsStore
             let catalogStarted = ProcessInfo.processInfo.systemUptime
             let catalog = recentCatalog ?? WCAppNames.catalog(
                 groupID: selectedGroup, discoveredBundleRoots: bundleRoots,
-                launchServicesStore: lsStore, knownPaths: Set(targets.map(\.path))
+                launchServicesStore: effectiveLSStore, knownPaths: Set(targets.map(\.path))
             )
             let catalogDuration = ProcessInfo.processInfo.systemUptime - catalogStarted
             let inspectionStarted = ProcessInfo.processInfo.systemUptime
@@ -276,17 +300,30 @@ final class WorseCleanerModel: ObservableObject {
                 }
             }
             let inspectionDuration = ProcessInfo.processInfo.systemUptime - inspectionStarted
+            let scannedLSStamp = WCPathDiscovery.launchServicesStamp(
+                storePath: effectiveLSStore, groupID: selectedGroup
+            )
             DispatchQueue.main.async {
-                // Only metadata is memoized, never measured cache sizes.
-                self.catalogMemo = catalog.containers.count >= 2
+                self.discoveredLSStore = effectiveLSStore
+                self.lastLaunchServicesStamp = scannedLSStamp
+                self.completedCacheScan = true
+                // Reuse names only if the database did not change during the scan.
+                // Cache sizes and access permissions are never cached.
+                self.catalogMemo = catalog.containers.count >= 2 &&
+                    (!shouldRecheckApps || scannedLSStamp ==
+                     WCPathDiscovery.launchServicesStamp(
+                         storePath: effectiveLSStore, groupID: selectedGroup))
                     ? CatalogMemo(value: catalog, groupID: selectedGroup,
                                   targetIDs: targetIDs,
                                   finishedAt: ProcessInfo.processInfo.systemUptime)
                     : nil
-                // A failed rescan must never retain stale size/selection data.
+                // Remove stale usage only after a verified removal; if MCM
+                // was incomplete, quickRecheckApps kept those old entries.
+                let stillPresent = Set(currentApps.map(\.id))
+                self.usage = self.usage.filter { stillPresent.contains($0.key) }
                 for target in targets { self.usage.removeValue(forKey: target.id) }
                 self.usage.merge(results) { _, newer in newer }
-                self.apps = self.apps.map { identities[$0.id] ?? $0 }
+                self.apps = currentApps.map { identities[$0.id] ?? $0 }
                 self.busy = false
                 let stats = "名称识别：\(namedCount) 个可显示名称（含离线名称映射）、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个未识别容器。"
                 let methods = "来源：LaunchServices \(identityCounts[.launchServices, default: 0])，元数据 \(identityCounts[.metadata, default: 0])，保存状态 \(identityCounts[.savedState, default: 0])，偏好文件 \(identityCounts[.preferences, default: 0])。"

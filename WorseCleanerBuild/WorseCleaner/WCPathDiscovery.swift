@@ -1,7 +1,79 @@
 import Foundation
 import Darwin
 
+// A cheap identity stamp: file metadata only; it does not read or parse
+// LaunchServices on every cache rescan.
+struct WCLaunchServicesStamp: Equatable {
+    let device: UInt64
+    let inode: UInt64
+    let size: Int64
+    let modifiedSeconds: Int64
+    let modifiedNanoseconds: Int64
+    let changedSeconds: Int64
+    let changedNanoseconds: Int64
+}
+
 enum WCPathDiscovery {
+    static func launchServicesStamp(storePath: String?, groupID: String) -> WCLaunchServicesStamp? {
+        guard let storePath else { return nil }
+        var details = stat()
+        if lstat(storePath, &details) != 0 {
+            // A valid sandbox grant may allow metadata on an otherwise hidden file.
+            let lease = WCGrant.readablePath(storePath, groupID: groupID)
+            guard lease > 0 else { return nil }
+            defer { worse_query_release(lease) }
+            guard lstat(storePath, &details) == 0 else { return nil }
+        }
+        guard (details.st_mode & S_IFMT) == S_IFREG,
+              details.st_size >= 4096, details.st_size <= 64 * 1024 * 1024 else { return nil }
+        return WCLaunchServicesStamp(
+            device: UInt64(details.st_dev), inode: UInt64(details.st_ino),
+            size: details.st_size,
+            modifiedSeconds: details.st_mtimespec.tv_sec,
+            modifiedNanoseconds: details.st_mtimespec.tv_nsec,
+            changedSeconds: details.st_ctimespec.tv_sec,
+            changedNanoseconds: details.st_ctimespec.tv_nsec
+        )
+    }
+
+    // Best-effort change probe. A partial MCM result can never make a known
+    // container disappear: only ENOENT / ENOTDIR proves removal. When the
+    // database stamp changed, read it once to discover new UUID paths.
+    static func quickRecheckApps(
+        existing: [WCTarget], groupID: String, storePath: String?,
+        previousStamp: WCLaunchServicesStamp?
+    ) -> (apps: [WCTarget], changed: Bool, storePath: String?) {
+        let currentStamp = launchServicesStamp(storePath: storePath, groupID: groupID)
+        let storeChanged = previousStamp != currentStamp
+        var error: NSString?
+        let raw = WCEnumerateApplicationContainers(&error)
+        let mcm = raw.compactMap { item -> WCTarget? in
+            guard let bundleID = item["bundleID"], let path = item["path"] else { return nil }
+            return try? WCTarget(bundleID: bundleID, name: item["name"] ?? bundleID, path: path)
+        }
+        let updatedIndex = storeChanged
+            ? quickLaunchServicesRoots(groupID: groupID, knownPaths: Set(mcm.map(\.path)))
+            : nil
+        let latest = (updatedIndex?.data ?? []) + mcm
+        var merged = [WCTarget]()
+        var knownPaths = Set<String>()
+        for old in existing {
+            // A manual entry remains user-owned until explicitly changed.
+            if old.bundleID != "manual" {
+                var details = stat()
+                if lstat(old.path, &details) != 0,
+                   errno == ENOENT || errno == ENOTDIR {
+                    continue
+                }
+            }
+            if knownPaths.insert(old.path).inserted { merged.append(old) }
+        }
+        for app in latest where knownPaths.insert(app.path).inserted {
+            merged.append(app)
+        }
+        let changed = storeChanged || Set(merged.map(\.path)) != Set(existing.map(\.path))
+        return (merged, changed, updatedIndex?.launchServicesStore)
+    }
     // Bundle/Application may be on a different volume, where an unprivileged
     // app cannot create an inode probe. Names remain best-effort; a missing
     // bundle path must never hide a data container found on the Data volume.
