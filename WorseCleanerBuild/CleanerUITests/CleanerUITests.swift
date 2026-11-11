@@ -137,10 +137,22 @@ final class CleanerUITests: XCTestCase {
         let app = launchPreview()
         let search = searchInput(in: app)
         XCTAssertTrue(search.waitForExistence(timeout: 10))
+        let originalWidth = search.frame.width
         search.tap()
+        XCTAssertLessThan(search.frame.width, originalWidth - 12)
+        let cancel = app.buttons["关闭搜索"]
+        XCTAssertTrue(cancel.isHittable)
         // Tap the noninteractive space within the summary card, above the keyboard.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.32)).tap()
         capture("search-after-background-tap")
+        let cancelHidden = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "hittable == false"),
+            object: cancel
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [cancelHidden], timeout: 3), .completed,
+                       "Tapping outside search must close the cancel button.")
+        XCTAssertLessThan(abs(search.frame.width - originalWidth), 6,
+                          "Tapping outside search must restore the inactive width.")
     }
 
     func testRepeatedSearchTapsKeepKeyboardOpen() {
