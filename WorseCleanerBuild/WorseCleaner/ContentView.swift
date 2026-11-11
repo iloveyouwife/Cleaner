@@ -6,6 +6,7 @@ import UIKit
 struct ContentView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private static let hiddenServiceIDs: Set<String> = [
         "com.apple.GameOverlayUI", "com.apple.HeadphoneProxService",
         "com.apple.PassbookUIService", "com.apple.PDUIApp",
@@ -33,6 +34,26 @@ struct ContentView: View {
     @State private var deviceStorageRefreshRevision = 0
     @ScaledMetric(relativeTo: .body) private var progressSize: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var shieldSize: CGFloat = 16
+
+    // Animate only the activation transaction. The system still owns the
+    // search field's glass styling, keyboard, cancel control, and dismissal.
+    // Keeping this animation off the List prevents rows and cards from being
+    // animated as a side effect of focusing search.
+    private var animatedSearchPresentation: Binding<Bool> {
+        Binding(
+            get: { searchPresented },
+            set: { presented in
+                guard searchPresented != presented else { return }
+                if presented && !reduceMotion {
+                    withAnimation(.smooth(duration: 0.28)) {
+                        searchPresented = true
+                    }
+                } else {
+                    searchPresented = presented
+                }
+            }
+        )
+    }
 
     private struct SearchSections {
         var named: [WCTarget] = []
@@ -169,7 +190,7 @@ struct ContentView: View {
                     }
                 }
             )
-            .searchable(text: $searchText, isPresented: $searchPresented,
+            .searchable(text: $searchText, isPresented: animatedSearchPresentation,
                         placement: .navigationBarDrawer(displayMode: .automatic),
                         prompt: "搜索 App")
             .searchPresentationToolbarBehavior(.avoidHidingContent)
