@@ -25,6 +25,18 @@ final class WorseCleanerModel: ObservableObject {
     private var lastPreparedGroup = ""
     private var discoveryPercent = 0
 
+    // Reuse only verified App-name and container mappings for ten minutes.
+    // Cache sizes and access permissions are NEVER reused: scanAll always
+    // measures Caches/tmp again, and cleanSelected always revalidates paths.
+    private struct CatalogMemo {
+        let value: WCAppCatalog
+        let groupID: String
+        let targetIDs: Set<String>
+        let finishedAt: TimeInterval
+    }
+    private static let catalogReuseSeconds: TimeInterval = 600
+    private var catalogMemo: CatalogMemo?
+
     private static func pathIdentity(_ path: String) -> String {
         path.hasPrefix("/private/var/")
             ? String(path.dropFirst("/private".count)) : path
@@ -58,6 +70,7 @@ final class WorseCleanerModel: ObservableObject {
         }
         appGroupReady = !groupID.isEmpty && available.contains(groupID)
         if lastPreparedGroup != groupID {
+            catalogMemo = nil
             usage.removeAll()
             scannedAppCount = 0
             lastPreparedGroup = groupID
@@ -68,6 +81,8 @@ final class WorseCleanerModel: ObservableObject {
 
     func loadApps() {
         guard !busy else { return }
+        // Explicit App-list refresh must re-read current app identities.
+        catalogMemo = nil
         refreshSigning()
         busy = true
         status = "正在读取已安装 App 的容器列表……"
@@ -142,6 +157,7 @@ final class WorseCleanerModel: ObservableObject {
 
     func deepDiscoverApps(automaticallyScan: Bool = false) {
         guard !busy else { return }
+        catalogMemo = nil
         busy = true
         discoveryPercent = 0
         let forceFull = !automaticallyScan
@@ -199,6 +215,19 @@ final class WorseCleanerModel: ObservableObject {
         busy = true
         let targets = apps.filter { !excludedPaths.contains($0.path) }
         let selectedGroup = groupID
+        let targetIDs = Set(targets.map(\.id))
+        let uptime = ProcessInfo.processInfo.systemUptime
+        let recentCatalog: WCAppCatalog?
+        if let memo = catalogMemo,
+           memo.groupID == selectedGroup,
+           memo.targetIDs == targetIDs,
+           memo.value.containers.count >= 2,
+           uptime >= memo.finishedAt,
+           uptime - memo.finishedAt < Self.catalogReuseSeconds {
+            recentCatalog = memo.value
+        } else {
+            recentCatalog = nil
+        }
         let bundleRoots = discoveredBundleRoots
         let lsStore = discoveredLSStore
         let discoveryInfo = discoveryDiagnostics
@@ -206,7 +235,7 @@ final class WorseCleanerModel: ObservableObject {
         status = "正在检查已发现 App 的缓存权限……"
         queue.async {
             let catalogStarted = ProcessInfo.processInfo.systemUptime
-            let catalog = WCAppNames.catalog(
+            let catalog = recentCatalog ?? WCAppNames.catalog(
                 groupID: selectedGroup, discoveredBundleRoots: bundleRoots,
                 launchServicesStore: lsStore, knownPaths: Set(targets.map(\.path))
             )
@@ -248,6 +277,12 @@ final class WorseCleanerModel: ObservableObject {
             }
             let inspectionDuration = ProcessInfo.processInfo.systemUptime - inspectionStarted
             DispatchQueue.main.async {
+                // Only metadata is memoized, never measured cache sizes.
+                self.catalogMemo = catalog.containers.count >= 2
+                    ? CatalogMemo(value: catalog, groupID: selectedGroup,
+                                  targetIDs: targetIDs,
+                                  finishedAt: ProcessInfo.processInfo.systemUptime)
+                    : nil
                 // A failed rescan must never retain stale size/selection data.
                 for target in targets { self.usage.removeValue(forKey: target.id) }
                 self.usage.merge(results) { _, newer in newer }
@@ -301,6 +336,7 @@ final class WorseCleanerModel: ObservableObject {
                 status = "已查询 \(min(start + 5, ids.count))/\(ids.count) 个 App，找到 \(found.count) 个名称。"
             }
             WCAppNames.storeVerifiedNames(found)
+            catalogMemo = nil
             apps = apps.map { app in
                 guard app.name == app.bundleID, let name = found[app.bundleID] else {
                     return app
