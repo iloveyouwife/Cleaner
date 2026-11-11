@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - search-animation-v66-qa
   workflow_dispatch:
 
 permissions:

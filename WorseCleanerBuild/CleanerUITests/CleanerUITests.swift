@@ -33,6 +33,12 @@ final class CleanerUITests: XCTestCase {
         sleep(1)
     }
 
+    private func searchInput(in app: XCUIApplication) -> XCUIElement {
+        let native = app.searchFields.firstMatch
+        if native.exists { return native }
+        return app.textFields["搜索 App"]
+    }
+
     func testSelectionMenuTwoItems() {
         let app = launchPreview()
         openMenu("选择操作", in: app)
@@ -87,12 +93,24 @@ final class CleanerUITests: XCTestCase {
 
     func testSearchFocusKeepsNativeToolbarAndDismissesOnSwipe() {
         let app = launchPreview()
-        let search = app.searchFields.firstMatch
+        let search = searchInput(in: app)
         XCTAssertTrue(search.waitForExistence(timeout: 10),
-                      "The native search field should be visible.")
+                      "The search field should be visible.")
         capture("search-inactive-gray")
+        let inactiveFrame = search.frame
         search.tap()
         capture("search-active-system-appearance")
+        let activeFrame = search.frame
+        XCTAssertLessThan(abs(activeFrame.minX - inactiveFrame.minX), 6,
+                          "The leading edge must stay fixed when search opens.")
+        XCTAssertLessThan(abs(activeFrame.minY - inactiveFrame.minY), 6,
+                          "Search should not shift vertically on activation.")
+        XCTAssertLessThan(abs(activeFrame.height - inactiveFrame.height), 6,
+                          "Search should keep its original height.")
+        XCTAssertLessThan(activeFrame.width, inactiveFrame.width - 12,
+                          "The field must shrink from the trailing edge.")
+        XCTAssertTrue(app.buttons["关闭搜索"].waitForExistence(timeout: 5),
+                      "The animated cancel button must appear.")
         app.swipeDown()
         capture("search-after-downward-swipe")
         if search.isHittable {
@@ -104,7 +122,7 @@ final class CleanerUITests: XCTestCase {
 
     func testSearchDismissesOnBackgroundTap() {
         let app = launchPreview()
-        let search = app.searchFields.firstMatch
+        let search = searchInput(in: app)
         XCTAssertTrue(search.waitForExistence(timeout: 10))
         search.tap()
         // Tap the noninteractive space within the summary card, above the keyboard.
