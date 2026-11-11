@@ -111,6 +111,10 @@ final class CleanerUITests: XCTestCase {
                           "The field must shrink from the trailing edge.")
         XCTAssertTrue(app.buttons["关闭搜索"].waitForExistence(timeout: 5),
                       "The animated cancel button must appear.")
+        app.buttons["关闭搜索"].tap()
+        XCTAssertFalse(app.buttons["关闭搜索"].exists,
+                       "Tapping cancel must close search without immediately reopening it.")
+        search.tap()
         app.swipeDown()
         capture("search-after-downward-swipe")
         if search.isHittable {

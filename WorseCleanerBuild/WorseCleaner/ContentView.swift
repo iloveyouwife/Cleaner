@@ -44,7 +44,7 @@ struct ContentView: View {
     @State private var deviceStorageRefreshRevision = 0
     @ScaledMetric(relativeTo: .body) private var progressSize: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var shieldSize: CGFloat = 16
-    @ScaledMetric(relativeTo: .body) private var searchBarHeight: CGFloat = 36
+    @ScaledMetric(relativeTo: .body) private var searchBarHeight: CGFloat = 42
 
     private var searchAnimation: Animation? {
         reduceMotion ? nil : .easeInOut(duration: 0.28)
@@ -327,11 +327,11 @@ struct ContentView: View {
         HStack(spacing: searchPresented ? 8 : 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color(uiColor: .label))
                     .accessibilityHidden(true)
                 TextField("搜索 App", text: $searchText)
                     .font(.body)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color(uiColor: .label))
                     .focused($searchFieldFocused)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -353,6 +353,11 @@ struct ContentView: View {
                 }
             }
             .contentShape(Capsule())
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    if !searchPresented { setSearchPresented(true) }
+                }
+            )
 
             Button {
                 setSearchPresented(false, clearQuery: true)
@@ -360,8 +365,9 @@ struct ContentView: View {
                 Image(systemName: "xmark")
                     .font(.body.weight(.medium))
                     .frame(width: searchBarHeight, height: searchBarHeight)
+                    .glassEffect(.regular, in: Circle())
             }
-            .buttonStyle(.glass)
+            .buttonStyle(.plain)
             .accessibilityLabel("关闭搜索")
             .frame(width: searchPresented ? searchBarHeight : 0, alignment: .leading)
             .offset(x: searchPresented ? 0 : searchBarHeight + 8)
@@ -371,11 +377,6 @@ struct ContentView: View {
         }
         .frame(height: searchBarHeight)
         .animation(searchAnimation, value: searchPresented)
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                if !searchPresented { setSearchPresented(true) }
-            }
-        )
         .onChange(of: searchFieldFocused) { _, focused in
             if focused && !searchPresented { setSearchPresented(true) }
         }
@@ -456,9 +457,10 @@ struct ContentView: View {
             }
             .padding(.vertical, 8)
         } header: {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
                 animatedSearchBar
-                    .padding(.horizontal, -12)
+                    .padding(.horizontal, -16)
+                    .offset(y: -10)
                 HStack(alignment: .center, spacing: 4) {
                     Image(systemName: "checkmark.shield")
                         .font(.footnote.weight(.semibold))
