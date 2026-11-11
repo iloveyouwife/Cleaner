@@ -1,6 +1,14 @@
 import SwiftUI
 import UIKit
 
+private struct CleanerSearchFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
 // 3105 CleanerView's layout: search, summary, sortable/selectable app rows,
 // selection menu, bulk action, and confirmation. The backend is worse_query.
 struct ContentView: View {
@@ -16,6 +24,8 @@ struct ContentView: View {
     @StateObject private var model = WorseCleanerModel()
     @State private var searchText = ""
     @State private var searchPresented = false
+    @FocusState private var searchFieldFocused: Bool
+    @State private var searchFieldFrame: CGRect = .zero
     @State private var appliedSearchText = ""
     @State private var orderedApps: [WCTarget] = []
     @State private var searchSections = SearchSections()
@@ -34,25 +44,18 @@ struct ContentView: View {
     @State private var deviceStorageRefreshRevision = 0
     @ScaledMetric(relativeTo: .body) private var progressSize: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var shieldSize: CGFloat = 16
+    @ScaledMetric(relativeTo: .body) private var searchBarHeight: CGFloat = 42
 
-    // Animate only the activation transaction. The system still owns the
-    // search field's glass styling, keyboard, cancel control, and dismissal.
-    // Keeping this animation off the List prevents rows and cards from being
-    // animated as a side effect of focusing search.
-    private var animatedSearchPresentation: Binding<Bool> {
-        Binding(
-            get: { searchPresented },
-            set: { presented in
-                guard searchPresented != presented else { return }
-                if presented && !reduceMotion {
-                    withAnimation(.smooth(duration: 0.28)) {
-                        searchPresented = true
-                    }
-                } else {
-                    searchPresented = presented
-                }
-            }
-        )
+    private var searchAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.28)
+    }
+
+    private func setSearchPresented(_ presented: Bool, clearQuery: Bool = false) {
+        withAnimation(searchAnimation) {
+            searchPresented = presented
+            searchFieldFocused = presented
+            if clearQuery { searchText = "" }
+        }
     }
 
     private struct SearchSections {
@@ -169,12 +172,16 @@ struct ContentView: View {
                     }
                 }
             .listStyle(.insetGrouped)
+            .coordinateSpace(name: "CleanerSearchList")
+            .onPreferenceChange(CleanerSearchFrameKey.self) { searchFieldFrame = $0 }
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(
-                TapGesture().onEnded {
-                    // Deactivate the native search presentation on background
-                    // taps while keeping the query and row interactions intact.
-                    if searchPresented { searchPresented = false }
+                SpatialTapGesture().onEnded { value in
+                    // The search field now belongs to the scrollable header.
+                    // Do not treat a tap inside it as an outside dismissal.
+                    guard searchPresented,
+                          !searchFieldFrame.contains(value.location) else { return }
+                    setSearchPresented(false)
                 }
             )
             .simultaneousGesture(
@@ -186,14 +193,10 @@ struct ContentView: View {
                     let offset = value.translation
                     if abs(offset.height) > 28 &&
                         abs(offset.height) > abs(offset.width) {
-                        searchPresented = false
+                        setSearchPresented(false)
                     }
                 }
             )
-            .searchable(text: $searchText, isPresented: animatedSearchPresentation,
-                        placement: .navigationBarDrawer(displayMode: .automatic),
-                        prompt: "搜索 App")
-            .searchPresentationToolbarBehavior(.avoidHidingContent)
             .task(id: searchText) {
                 // The keyboard remains responsive; filter once after a brief
                 // typing pause, instead of rebuilding every list on each key.
@@ -316,6 +319,75 @@ struct ContentView: View {
         }
     }
 
+    // A single horizontal animation controls both the search field's trailing
+    // edge and the cancel button. The field's leading edge and height stay put.
+    // Keeping this in the first section header preserves the old drawer-like
+    // behavior: scroll up to hide it and pull down to reveal it again.
+    private var animatedSearchBar: some View {
+        HStack(spacing: searchPresented ? 8 : 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Color(uiColor: .label))
+                    .accessibilityHidden(true)
+                TextField("搜索 App", text: $searchText)
+                    .font(.body)
+                    .foregroundStyle(Color(uiColor: .label))
+                    .focused($searchFieldFocused)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                    .accessibilityLabel("搜索 App")
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: searchBarHeight)
+            .background {
+                ZStack {
+                    Capsule()
+                        .fill(Color(uiColor: .tertiarySystemFill))
+                        .opacity(searchPresented ? 0 : 1)
+                    Capsule()
+                        .fill(.clear)
+                        .glassEffect(.regular, in: Capsule())
+                        .opacity(searchPresented ? 1 : 0)
+                }
+            }
+            .contentShape(Capsule())
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    if !searchPresented { setSearchPresented(true) }
+                }
+            )
+
+            Button {
+                setSearchPresented(false, clearQuery: true)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.medium))
+                    .frame(width: searchBarHeight, height: searchBarHeight)
+                    .glassEffect(.regular, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭搜索")
+            .frame(width: searchPresented ? searchBarHeight : 0, alignment: .leading)
+            .offset(x: searchPresented ? 0 : searchBarHeight + 8)
+            .opacity(searchPresented ? 1 : 0)
+            .allowsHitTesting(searchPresented)
+            .accessibilityHidden(!searchPresented)
+        }
+        .frame(height: searchBarHeight)
+        .animation(searchAnimation, value: searchPresented)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CleanerSearchFrameKey.self,
+                    value: proxy.frame(in: .named("CleanerSearchList"))
+                )
+            }
+        }
+    }
+
     private var summarySection: some View {
         Section {
             VStack(spacing: 14) {
@@ -383,16 +455,21 @@ struct ContentView: View {
             }
             .padding(.vertical, 8)
         } header: {
-            HStack(alignment: .center, spacing: 4) {
-                Image(systemName: "checkmark.shield")
-                    .font(.footnote.weight(.semibold))
-                    .frame(width: shieldSize, height: shieldSize, alignment: .center)
-                    .accessibilityHidden(true)
-                Text("有限清理模式")
-                    .font(.footnote.weight(.semibold))
+            VStack(alignment: .leading, spacing: 10) {
+                animatedSearchBar
+                    .padding(.horizontal, -16)
+                    .offset(y: -10)
+                HStack(alignment: .center, spacing: 4) {
+                    Image(systemName: "checkmark.shield")
+                        .font(.footnote.weight(.semibold))
+                        .frame(width: shieldSize, height: shieldSize, alignment: .center)
+                        .accessibilityHidden(true)
+                    Text("有限清理模式")
+                        .font(.footnote.weight(.semibold))
+                }
+                .foregroundColor(Color(uiColor: .secondaryLabel))
+                .textCase(nil)
             }
-            .foregroundColor(Color(uiColor: .secondaryLabel))
-            .textCase(nil)
         } footer: {
             Text("仅清理所选项目的 Caches/tmp，保留 Documents 和容器本身。")
         }
