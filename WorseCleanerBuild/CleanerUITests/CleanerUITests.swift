@@ -112,8 +112,13 @@ final class CleanerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["关闭搜索"].waitForExistence(timeout: 5),
                       "The animated cancel button must appear.")
         app.buttons["关闭搜索"].tap()
-        XCTAssertFalse(app.buttons["关闭搜索"].exists,
-                       "Tapping cancel must close search without immediately reopening it.")
+        capture("search-after-cancel")
+        let cancelGone = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: app.buttons["关闭搜索"]
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [cancelGone], timeout: 3), .completed,
+                       "Tapping cancel must close search without reopening it.")
         search.tap()
         app.swipeDown()
         capture("search-after-downward-swipe")

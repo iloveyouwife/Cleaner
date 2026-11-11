@@ -377,9 +377,6 @@ struct ContentView: View {
         }
         .frame(height: searchBarHeight)
         .animation(searchAnimation, value: searchPresented)
-        .onChange(of: searchFieldFocused) { _, focused in
-            if focused && !searchPresented { setSearchPresented(true) }
-        }
         .background {
             GeometryReader { proxy in
                 Color.clear.preference(
