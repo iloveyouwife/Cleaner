@@ -176,11 +176,16 @@ struct ContentView: View {
             .onPreferenceChange(CleanerSearchFrameKey.self) { searchFieldFrame = $0 }
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(
-                SpatialTapGesture().onEnded { value in
+                SpatialTapGesture(coordinateSpace: .named("CleanerSearchList"))
+                    .onEnded { value in
                     // The search field now belongs to the scrollable header.
-                    // Do not treat a tap inside it as an outside dismissal.
+                    // Compare both points in the same coordinate space so
+                    // repeated taps cannot dismiss and immediately refocus
+                    // the field (which restarts the keyboard animation).
                     guard searchPresented,
-                          !searchFieldFrame.contains(value.location) else { return }
+                          searchFieldFrame != .zero,
+                          !searchFieldFrame.insetBy(dx: -12, dy: -10)
+                              .contains(value.location) else { return }
                     setSearchPresented(false)
                 }
             )
