@@ -51,10 +51,21 @@ struct ContentView: View {
     }
 
     private func setSearchPresented(_ presented: Bool, clearQuery: Bool = false) {
+        if presented && searchPresented && searchFieldFocused && !clearQuery {
+            return
+        }
         withAnimation(searchAnimation) {
             searchPresented = presented
-            searchFieldFocused = presented
+            // Keep focus until the current tap finishes. On a repeated tap
+            // the list and field may both recognize one touch: closing and
+            // reopening in that event must not restart the keyboard.
+            if presented || clearQuery { searchFieldFocused = presented }
             if clearQuery { searchText = "" }
+        }
+        if !presented && !clearQuery {
+            DispatchQueue.main.async {
+                if !searchPresented { searchFieldFocused = false }
+            }
         }
     }
 
@@ -178,7 +189,7 @@ struct ContentView: View {
             .simultaneousGesture(
                 SpatialTapGesture().onEnded { value in
                     // The search field now belongs to the scrollable header.
-                    // Do not treat a tap inside it as an outside dismissal.
+                    // Preserve the v66 outside-tap behavior and its bounds.
                     guard searchPresented,
                           !searchFieldFrame.contains(value.location) else { return }
                     setSearchPresented(false)

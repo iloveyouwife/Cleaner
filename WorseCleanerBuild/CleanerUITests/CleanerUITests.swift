@@ -137,10 +137,45 @@ final class CleanerUITests: XCTestCase {
         let app = launchPreview()
         let search = searchInput(in: app)
         XCTAssertTrue(search.waitForExistence(timeout: 10))
+        let originalWidth = search.frame.width
         search.tap()
+        XCTAssertLessThan(search.frame.width, originalWidth - 12)
+        let cancel = app.buttons["关闭搜索"]
+        XCTAssertTrue(cancel.isHittable)
         // Tap the noninteractive space within the summary card, above the keyboard.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.32)).tap()
         capture("search-after-background-tap")
+        let cancelHidden = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "hittable == false"),
+            object: cancel
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [cancelHidden], timeout: 3), .completed,
+                       "Tapping outside search must close the cancel button.")
+        XCTAssertLessThan(abs(search.frame.width - originalWidth), 6,
+                          "Tapping outside search must restore the inactive width.")
+    }
+
+    func testRepeatedSearchTapsKeepKeyboardOpen() {
+        let app = launchPreview()
+        let search = searchInput(in: app)
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10),
+                      "The keyboard must appear on first search activation.")
+        let activeFrame = search.frame
+
+        for _ in 0..<3 {
+            search.tap()
+            XCTAssertTrue(keyboard.isHittable,
+                          "A repeated search tap must not dismiss the keyboard.")
+            XCTAssertLessThan(abs(search.frame.width - activeFrame.width), 6,
+                              "Repeated taps must not replay the search-opening transition.")
+            XCTAssertTrue(app.buttons["关闭搜索"].isHittable,
+                          "The search field must stay in the active state.")
+        }
+        capture("search-repeated-taps-keyboard-stable")
     }
 
     func testAdvancedSettingsRowsAndDiagnostics() {
