@@ -126,9 +126,26 @@ struct ContentView: View {
         searchSections.unidentified
     }
 
-    private var displayedApps: [WCTarget] {
-        namedApps + ((showingBundleIDOnly || !appliedSearchText.isEmpty) ? bundleIDOnlyApps : [])
-            + ((showingUnidentifiedContainers || !appliedSearchText.isEmpty) ? unidentifiedContainers : [])
+    // Bulk selection follows the explicit expansion state of the two optional
+    // groups. Search may reveal matches without expanding a group, but that
+    // alone must not silently include the group in "全选".
+    private var bulkSelectableApps: [WCTarget] {
+        namedApps + (showingBundleIDOnly ? bundleIDOnlyApps : [])
+            + (showingUnidentifiedContainers ? unidentifiedContainers : [])
+    }
+
+    private var allBulkSelectable: Bool {
+        !bulkSelectableApps.isEmpty && bulkSelectableApps.allSatisfy {
+            selectedIDs.contains($0.id)
+        }
+    }
+
+    private func toggleBulkSelection() {
+        if allBulkSelectable {
+            selectedIDs.removeAll()
+        } else {
+            selectedIDs.formUnion(bulkSelectableApps.map(\.id))
+        }
     }
 
     private func isUnknownContainer(_ app: WCTarget) -> Bool {
@@ -551,7 +568,19 @@ struct ContentView: View {
         } header: {
             HStack(spacing: 8) {
                 appSectionHeading("已识别名称", count: namedApps.count)
-                if model.busy { ProgressView().controlSize(.mini) }
+                if model.busy {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Button(action: toggleBulkSelection) {
+                        Text(allBulkSelectable ? "取消全选" : "全选")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(Color(uiColor: .label).opacity(0.58))
+                            .textCase(nil)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(bulkSelectableApps.isEmpty)
+                    .accessibilityHint("切换当前展开分组中可见 App 的选择状态")
+                }
             }
         }
     }
@@ -637,18 +666,7 @@ struct ContentView: View {
 
     private var selectionMenu: some View {
         Menu {
-            Button {
-                selectedIDs.formUnion(displayedApps.map(\.id))
-            } label: {
-                Label("全选当前列表", systemImage: "checkmark.circle")
-            }
-
             if !selectedIDs.isEmpty {
-                Button {
-                    selectedIDs.removeAll()
-                } label: {
-                    Label("取消全选", systemImage: "circle")
-                }
                 Button {
                     let paths = Set(model.apps.filter { selectedIDs.contains($0.id) }.map(\.path))
                     model.exclude(paths)

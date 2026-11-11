@@ -51,6 +51,25 @@ final class CleanerUITests: XCTestCase {
         capture("selection-menu-four-items")
     }
 
+    func testBulkSelectionLivesAboveList() {
+        let app = launchPreview()
+        let selectAll = app.buttons["全选"]
+        XCTAssertTrue(selectAll.waitForExistence(timeout: 10),
+                      "After scanning, the list heading should offer bulk selection.")
+        selectAll.tap()
+        let clearAll = app.buttons["取消全选"]
+        XCTAssertTrue(clearAll.waitForExistence(timeout: 5),
+                      "Selecting all should switch the same control to 取消全选.")
+        XCTAssertTrue(app.staticTexts["已选择 7 项"].exists,
+                      "The collapsed Bundle ID group must not be selected.")
+        capture("bulk-select-selected")
+        clearAll.tap()
+        XCTAssertTrue(selectAll.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["已选择 0 项"].exists,
+                      "Toggling again should clear all selections.")
+        capture("bulk-select-cleared")
+    }
+
     func testSortMenu() {
         let app = launchPreview()
         openMenu("排序", in: app)
