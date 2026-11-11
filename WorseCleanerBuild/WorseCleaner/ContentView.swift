@@ -366,6 +366,7 @@ struct ContentView: View {
                     .font(.body.weight(.medium))
                     .frame(width: searchBarHeight, height: searchBarHeight)
                     .glassEffect(.regular, in: Circle())
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("关闭搜索")

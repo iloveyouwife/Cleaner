@@ -210,7 +210,9 @@ jobs:
           set -euo pipefail
           simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
           test -n "$simulator_id"
-          xcodebuild test \
+          xcrun simctl boot "$simulator_id" || true
+          xcrun simctl bootstatus "$simulator_id" -b
+          if xcodebuild test \
             -project WorseCleanerBuild/WorseCleaner.xcodeproj \
             -scheme WorseCleaner \
             -configuration Debug \
@@ -221,11 +223,16 @@ jobs:
             -only-testing:CleanerUITests/CleanerUITests/testSearchFocusKeepsNativeToolbarAndDismissesOnSwipe \
             -only-testing:CleanerUITests/CleanerUITests/testSearchDismissesOnBackgroundTap \
             CODE_SIGNING_ALLOWED=NO \
-            test
+            test; then
+            test_result=0
+          else
+            test_result=$?
+          fi
           mkdir -p ui-menu-screenshots
           xcrun xcresulttool export attachments \
             --path cleaner-ui-tests.xcresult \
-            --output-path ui-menu-screenshots
+            --output-path ui-menu-screenshots || true
+          exit "$test_result"
 
       - name: Upload layout screenshot
         if: always()
