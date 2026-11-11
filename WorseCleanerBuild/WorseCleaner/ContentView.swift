@@ -14,6 +14,7 @@ struct ContentView: View {
 
     @StateObject private var model = WorseCleanerModel()
     @State private var searchText = ""
+    @State private var searchPresented = false
     @State private var appliedSearchText = ""
     @State private var orderedApps: [WCTarget] = []
     @State private var searchSections = SearchSections()
@@ -150,17 +151,28 @@ struct ContentView: View {
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(
                 TapGesture().onEnded {
-                    // End keyboard focus when tapping list content without
-                    // cancelling native search or clearing the current query.
-                    // A simultaneous gesture preserves the row button action.
-                    UIApplication.shared.sendAction(
-                        #selector(UIResponder.resignFirstResponder),
-                        to: nil, from: nil, for: nil
-                    )
+                    // Deactivate the native search presentation on background
+                    // taps while keeping the query and row interactions intact.
+                    if searchPresented { searchPresented = false }
                 }
             )
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic),
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20).onEnded { value in
+                    // Both vertical directions dismiss active search. Let List
+                    // continue handling scrolling and the system handle its
+                    // interactive keyboard transition.
+                    guard searchPresented else { return }
+                    let offset = value.translation
+                    if abs(offset.height) > 28 &&
+                        abs(offset.height) > abs(offset.width) {
+                        searchPresented = false
+                    }
+                }
+            )
+            .searchable(text: $searchText, isPresented: $searchPresented,
+                        placement: .navigationBarDrawer(displayMode: .automatic),
                         prompt: "搜索 App")
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
             .task(id: searchText) {
                 // The keyboard remains responsive; filter once after a brief
                 // typing pause, instead of rebuilding every list on each key.

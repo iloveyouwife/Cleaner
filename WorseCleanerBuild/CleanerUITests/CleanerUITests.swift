@@ -85,6 +85,33 @@ final class CleanerUITests: XCTestCase {
         capture("search-drawer-after-pull-down")
     }
 
+    func testSearchFocusKeepsNativeToolbarAndDismissesOnSwipe() {
+        let app = launchPreview()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10),
+                      "The native search field should be visible.")
+        capture("search-inactive-gray")
+        search.tap()
+        capture("search-active-system-appearance")
+        app.swipeDown()
+        capture("search-after-downward-swipe")
+        if search.isHittable {
+            search.tap()
+            app.swipeUp()
+            capture("search-after-upward-swipe")
+        }
+    }
+
+    func testSearchDismissesOnBackgroundTap() {
+        let app = launchPreview()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        // Tap the noninteractive space within the summary card, above the keyboard.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.32)).tap()
+        capture("search-after-background-tap")
+    }
+
     func testAdvancedSettingsRowsAndDiagnostics() {
         let app = XCUIApplication()
         app.launchArguments = ["-captureAdvancedSettings"]
