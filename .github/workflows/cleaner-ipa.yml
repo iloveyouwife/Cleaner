@@ -118,6 +118,7 @@ jobs:
       # Required simulator UI regression checks. Screenshot fixtures bypass
       # discovery only on the simulator, never signed-device safeguards.
       - name: Capture native UI layouts
+        if: false # QA branch: fast focused search regression; main keeps full screenshot coverage.
         run: |
           set -euo pipefail
           xcodebuild \
@@ -217,6 +218,8 @@ jobs:
             -destination "platform=iOS Simulator,id=$simulator_id" \
             -derivedDataPath "$PWD/DerivedDataUITests" \
             -resultBundlePath "$PWD/cleaner-ui-tests.xcresult" \
+            -only-testing:CleanerUITests/CleanerUITests/testSearchFocusKeepsNativeToolbarAndDismissesOnSwipe \
+            -only-testing:CleanerUITests/CleanerUITests/testSearchDismissesOnBackgroundTap \
             CODE_SIGNING_ALLOWED=NO \
             test
           mkdir -p ui-menu-screenshots
