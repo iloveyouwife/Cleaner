@@ -143,6 +143,29 @@ final class CleanerUITests: XCTestCase {
         capture("search-after-background-tap")
     }
 
+    func testRepeatedSearchTapsKeepKeyboardOpen() {
+        let app = launchPreview()
+        let search = searchInput(in: app)
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10),
+                      "The keyboard must appear on first search activation.")
+        let activeFrame = search.frame
+
+        for _ in 0..<3 {
+            search.tap()
+            XCTAssertTrue(keyboard.isHittable,
+                          "A repeated search tap must not dismiss the keyboard.")
+            XCTAssertLessThan(abs(search.frame.width - activeFrame.width), 6,
+                              "Repeated taps must not replay the search-opening transition.")
+            XCTAssertTrue(app.buttons["关闭搜索"].isHittable,
+                          "The search field must stay in the active state.")
+        }
+        capture("search-repeated-taps-keyboard-stable")
+    }
+
     func testAdvancedSettingsRowsAndDiagnostics() {
         let app = XCUIApplication()
         app.launchArguments = ["-captureAdvancedSettings"]
