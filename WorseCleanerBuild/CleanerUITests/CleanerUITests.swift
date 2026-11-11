@@ -113,12 +113,16 @@ final class CleanerUITests: XCTestCase {
                       "The animated cancel button must appear.")
         app.buttons["关闭搜索"].tap()
         capture("search-after-cancel")
-        let cancelGone = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == false"),
+        // SwiftUI can retain an accessibility element while its animated
+        // zero-width container is hidden; verify that it is no longer tappable.
+        let cancelHidden = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "hittable == false"),
             object: app.buttons["关闭搜索"]
         )
-        XCTAssertEqual(XCTWaiter.wait(for: [cancelGone], timeout: 3), .completed,
+        XCTAssertEqual(XCTWaiter.wait(for: [cancelHidden], timeout: 3), .completed,
                        "Tapping cancel must close search without reopening it.")
+        XCTAssertLessThan(abs(search.frame.width - inactiveFrame.width), 6,
+                          "The search field must return to its inactive width.")
         search.tap()
         app.swipeDown()
         capture("search-after-downward-swipe")
