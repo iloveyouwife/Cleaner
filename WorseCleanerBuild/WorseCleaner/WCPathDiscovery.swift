@@ -29,10 +29,10 @@ enum WCPathDiscovery {
         return WCLaunchServicesStamp(
             device: UInt64(details.st_dev), inode: UInt64(details.st_ino),
             size: details.st_size,
-            modifiedSeconds: details.st_mtimespec.tv_sec,
-            modifiedNanoseconds: details.st_mtimespec.tv_nsec,
-            changedSeconds: details.st_ctimespec.tv_sec,
-            changedNanoseconds: details.st_ctimespec.tv_nsec
+            modifiedSeconds: Int64(details.st_mtimespec.tv_sec),
+            modifiedNanoseconds: Int64(details.st_mtimespec.tv_nsec),
+            changedSeconds: Int64(details.st_ctimespec.tv_sec),
+            changedNanoseconds: Int64(details.st_ctimespec.tv_nsec)
         )
     }
 
@@ -61,9 +61,9 @@ enum WCPathDiscovery {
             // A manual entry remains user-owned until explicitly changed.
             if old.bundleID != "manual" {
                 var details = stat()
-                if lstat(old.path, &details) != 0,
-                   errno == ENOENT || errno == ENOTDIR {
-                    continue
+                if lstat(old.path, &details) != 0 {
+                    let code = errno
+                    if code == ENOENT || code == ENOTDIR { continue }
                 }
             }
             if knownPaths.insert(old.path).inserted { merged.append(old) }

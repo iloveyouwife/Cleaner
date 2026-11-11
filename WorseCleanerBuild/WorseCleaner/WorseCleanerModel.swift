@@ -258,6 +258,9 @@ final class WorseCleanerModel: ObservableObject {
                 recentCatalog = nil
             }
             let effectiveLSStore = changes?.storePath ?? lsStore
+            let scanStartLSStamp = WCPathDiscovery.launchServicesStamp(
+                storePath: effectiveLSStore, groupID: selectedGroup
+            )
             let catalogStarted = ProcessInfo.processInfo.systemUptime
             let catalog = recentCatalog ?? WCAppNames.catalog(
                 groupID: selectedGroup, discoveredBundleRoots: bundleRoots,
@@ -310,9 +313,7 @@ final class WorseCleanerModel: ObservableObject {
                 // Reuse names only if the database did not change during the scan.
                 // Cache sizes and access permissions are never cached.
                 self.catalogMemo = catalog.containers.count >= 2 &&
-                    (!shouldRecheckApps || scannedLSStamp ==
-                     WCPathDiscovery.launchServicesStamp(
-                         storePath: effectiveLSStore, groupID: selectedGroup))
+                    scanStartLSStamp == scannedLSStamp
                     ? CatalogMemo(value: catalog, groupID: selectedGroup,
                                   targetIDs: targetIDs,
                                   finishedAt: ProcessInfo.processInfo.systemUptime)
