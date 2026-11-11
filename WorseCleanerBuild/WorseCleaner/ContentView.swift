@@ -51,10 +51,21 @@ struct ContentView: View {
     }
 
     private func setSearchPresented(_ presented: Bool, clearQuery: Bool = false) {
+        if presented && searchPresented && searchFieldFocused && !clearQuery {
+            return
+        }
         withAnimation(searchAnimation) {
             searchPresented = presented
-            searchFieldFocused = presented
+            // Keep focus until the current tap finishes. On a repeated tap
+            // the list and field may both recognize one touch: closing and
+            // reopening in that event must not restart the keyboard.
+            if presented || clearQuery { searchFieldFocused = presented }
             if clearQuery { searchText = "" }
+        }
+        if !presented && !clearQuery {
+            DispatchQueue.main.async {
+                if !searchPresented { searchFieldFocused = false }
+            }
         }
     }
 
@@ -176,16 +187,11 @@ struct ContentView: View {
             .onPreferenceChange(CleanerSearchFrameKey.self) { searchFieldFrame = $0 }
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(
-                SpatialTapGesture(coordinateSpace: .named("CleanerSearchList"))
-                    .onEnded { value in
+                SpatialTapGesture().onEnded { value in
                     // The search field now belongs to the scrollable header.
-                    // Compare both points in the same coordinate space so
-                    // repeated taps cannot dismiss and immediately refocus
-                    // the field (which restarts the keyboard animation).
+                    // Preserve the v66 outside-tap behavior and its bounds.
                     guard searchPresented,
-                          searchFieldFrame != .zero,
-                          !searchFieldFrame.insetBy(dx: -12, dy: -10)
-                              .contains(value.location) else { return }
+                          !searchFieldFrame.contains(value.location) else { return }
                     setSearchPresented(false)
                 }
             )
