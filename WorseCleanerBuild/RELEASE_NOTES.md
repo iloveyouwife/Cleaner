@@ -1,3 +1,14 @@
+## Cleaner v0.78.0
+
+### 回退自绘搜索，恢复 iOS 27 官方原生搜索
+
+- 修复 v77 真机截图中搜索框直接消失的问题：删除坐标偏好、悬浮层、透明占位和自绘 TextField / 取消按钮；没有继续调整自制搜索的位置。
+- 精确采用项目 v57 已使用的 SwiftUI .searchable(text:placement:prompt:) + .navigationBarDrawer(displayMode: .automatic) 原生方案，新增 .searchPresentationToolbarBehavior(.avoidHidingContent)，避免系统搜索激活时挤掉原导航工具栏。
+- 搜索输入、清除 ×、键盘焦点、原生动画、滚动显隐交由系统管理；删除 v66-v77 所有自定义搜索手势、定位和失焦后强制弹键盘逻辑。此版只在 App 列表用既有 160ms 防抖筛选。
+- 保持原首页 summary 卡片、App 行、分组、排序、扫描/清理及授权行为不变；搜索栏采用系统原生位置，可能与 v71 自绘动画有细节差异。
+- 更新 UI 自动化测试，去掉自绘专用圆形关闭/宽度断言，检查搜索栏出现、有结果/无结果/清空/再次输入中的键盘可交互与工具栏显示。
+- IPA 编译发布后执行模拟器 UI 测试；模拟器结果不能替代 iPhone 中文输入法真机测试。
+
 ## Cleaner v0.77.0
 
 ### 修复搜索结果变化时键盘反复跳动（真机 66 秒录屏）

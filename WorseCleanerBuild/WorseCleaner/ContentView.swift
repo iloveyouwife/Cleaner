@@ -1,14 +1,6 @@
 import SwiftUI
 import UIKit
 
-private struct CleanerSearchFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
-
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
-    }
-}
-
 // 3105 CleanerView's layout: search, summary, sortable/selectable app rows,
 // selection menu, bulk action, and confirmation. The backend is worse_query.
 struct ContentView: View {
@@ -23,9 +15,6 @@ struct ContentView: View {
 
     @StateObject private var model = WorseCleanerModel()
     @State private var searchText = ""
-    @State private var searchPresented = false
-    @FocusState private var searchFieldFocused: Bool
-    @State private var searchFieldFrame: CGRect = .zero
     @State private var appliedSearchText = ""
     @State private var orderedApps: [WCTarget] = []
     @State private var searchSections = SearchSections()
@@ -44,30 +33,6 @@ struct ContentView: View {
     @State private var deviceStorageRefreshRevision = 0
     @ScaledMetric(relativeTo: .body) private var progressSize: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var shieldSize: CGFloat = 16
-    @ScaledMetric(relativeTo: .body) private var searchBarHeight: CGFloat = 42
-
-    private var searchAnimation: Animation? {
-        reduceMotion ? nil : .easeInOut(duration: 0.28)
-    }
-
-    private func setSearchPresented(_ presented: Bool, clearQuery: Bool = false) {
-        if presented && searchPresented && searchFieldFocused && !clearQuery {
-            return
-        }
-        withAnimation(searchAnimation) {
-            searchPresented = presented
-            // Keep focus until the current tap finishes. On a repeated tap
-            // the list and field may both recognize one touch: closing and
-            // reopening in that event must not restart the keyboard.
-            if presented || clearQuery { searchFieldFocused = presented }
-            if clearQuery { searchText = "" }
-        }
-        if !presented && !clearQuery {
-            DispatchQueue.main.async {
-                if !searchPresented { searchFieldFocused = false }
-            }
-        }
-    }
 
     private struct SearchSections {
         var named: [WCTarget] = []
@@ -200,50 +165,14 @@ struct ContentView: View {
                     }
                 }
             .listStyle(.insetGrouped)
-            // Place the actual TextField OUTSIDE the List's recycled headers.
-            // The transparent header slot below keeps v71's exact layout.
-            // Its measured frame moves with the List when scrolled, while
-            // this stable overlay retains its first responder through filters.
-            .overlay(alignment: .topLeading) {
-                animatedSearchBar
-                    .frame(width: max(0, searchFieldFrame.width),
-                           height: searchBarHeight)
-                    .offset(x: searchFieldFrame.minX,
-                            y: searchFieldFrame.minY)
-                    .opacity(searchFieldFrame.width > 0 ? 1 : 0)
-                    .allowsHitTesting(searchFieldFrame.width > 0)
-            }
-            .coordinateSpace(name: "CleanerSearchList")
-            .onPreferenceChange(CleanerSearchFrameKey.self) { frame in
-                // An empty/recycled header must not remove the overlay or
-                // its keyboard; retain the last valid position until redraw.
-                if frame.width > 0 && frame.height > 0 {
-                    searchFieldFrame = frame
-                }
-            }
             .scrollDismissesKeyboard(.interactively)
-            .simultaneousGesture(
-                SpatialTapGesture().onEnded { value in
-                    // The search field now belongs to the scrollable header.
-                    // Preserve the v66 outside-tap behavior and its bounds.
-                    guard searchPresented,
-                          !searchFieldFrame.contains(value.location) else { return }
-                    setSearchPresented(false)
-                }
-            )
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 20).onEnded { value in
-                    // Both vertical directions dismiss active search. Let List
-                    // continue handling scrolling and the system handle its
-                    // interactive keyboard transition.
-                    guard searchPresented else { return }
-                    let offset = value.translation
-                    if abs(offset.height) > 28 &&
-                        abs(offset.height) > abs(offset.width) {
-                        setSearchPresented(false)
-                    }
-                }
-            )
+            // Use the iOS 27 native search drawer (as in Cleaner v57).
+            // UIKit/SwiftUI owns the actual search field and keyboard;
+            // filtered rows can update without replacing the first responder.
+            .searchable(text: $searchText,
+                        placement: .navigationBarDrawer(displayMode: .automatic),
+                        prompt: "搜索 App")
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
             .task(id: searchText) {
                 // The keyboard remains responsive; filter once after a brief
                 // typing pause, instead of rebuilding every list on each key.
@@ -366,86 +295,6 @@ struct ContentView: View {
         }
     }
 
-    // The search field lives in a stable List overlay. Its v71 visual slot
-    // is still in the first section header, tracked by a preference frame.
-    // Search-result row rebuilding can no longer recycle the first responder.
-    private var animatedSearchBar: some View {
-        HStack(spacing: searchPresented ? 8 : 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Color(uiColor: .label))
-                    .accessibilityHidden(true)
-                TextField("搜索 App", text: $searchText)
-                    .font(.body)
-                    .foregroundStyle(Color(uiColor: .label))
-                    .focused($searchFieldFocused)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.search)
-                    .onSubmit {
-                        // A keyboard Search press is an intentional exit.
-                        setSearchPresented(false)
-                    }
-                    .accessibilityLabel("搜索 App")
-
-                if !searchText.isEmpty {
-                    Button {
-                        // Clear the query without touching FocusState. The
-                        // persistent TextField outside the List stays active.
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.body)
-                            .foregroundStyle(.tertiary)
-                            .frame(width: 25, height: 32)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("清除搜索文字")
-                }
-            }
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity)
-            .frame(height: searchBarHeight)
-            .background {
-                ZStack {
-                    Capsule()
-                        .fill(Color(uiColor: .tertiarySystemFill))
-                        .opacity(searchPresented ? 0 : 1)
-                    Capsule()
-                        .fill(.clear)
-                        .glassEffect(.regular, in: Capsule())
-                        .opacity(searchPresented ? 1 : 0)
-                }
-            }
-            .contentShape(Capsule())
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    if !searchPresented { setSearchPresented(true) }
-                }
-            )
-
-            Button {
-                setSearchPresented(false, clearQuery: true)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.body.weight(.medium))
-                    .frame(width: searchBarHeight, height: searchBarHeight)
-                    .glassEffect(.regular, in: Circle())
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("关闭搜索")
-            .frame(width: searchPresented ? searchBarHeight : 0, alignment: .leading)
-            .offset(x: searchPresented ? 0 : searchBarHeight + 8)
-            .opacity(searchPresented ? 1 : 0)
-            .allowsHitTesting(searchPresented)
-            .accessibilityHidden(!searchPresented)
-        }
-        .frame(height: searchBarHeight)
-        .animation(searchAnimation, value: searchPresented)
-    }
-
     private var summarySection: some View {
         Section {
             VStack(spacing: 14) {
@@ -513,34 +362,16 @@ struct ContentView: View {
             }
             .padding(.vertical, 8)
         } header: {
-            VStack(alignment: .leading, spacing: 10) {
-                // Identical v71 layout footprint; only the input control is
-                // rendered in a stable overlay above the List, so filtering
-                // cannot detach/recreate the active keyboard responder.
-                Color.clear
-                    .frame(maxWidth: .infinity)
-                    .frame(height: searchBarHeight)
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: CleanerSearchFrameKey.self,
-                                value: proxy.frame(in: .named("CleanerSearchList"))
-                            )
-                        }
-                    }
-                    .padding(.horizontal, -16)
-                    .offset(y: -10)
-                HStack(alignment: .center, spacing: 4) {
-                    Image(systemName: "checkmark.shield")
-                        .font(.footnote.weight(.semibold))
-                        .frame(width: shieldSize, height: shieldSize, alignment: .center)
-                        .accessibilityHidden(true)
-                    Text("有限清理模式")
-                        .font(.footnote.weight(.semibold))
-                }
-                .foregroundColor(Color(uiColor: .secondaryLabel))
-                .textCase(nil)
+            HStack(alignment: .center, spacing: 4) {
+                Image(systemName: "checkmark.shield")
+                    .font(.footnote.weight(.semibold))
+                    .frame(width: shieldSize, height: shieldSize, alignment: .center)
+                    .accessibilityHidden(true)
+                Text("有限清理模式")
+                    .font(.footnote.weight(.semibold))
             }
+            .foregroundColor(Color(uiColor: .secondaryLabel))
+            .textCase(nil)
         } footer: {
             Text("仅清理所选项目的 Caches/tmp，保留 Documents 和容器本身。")
         }
