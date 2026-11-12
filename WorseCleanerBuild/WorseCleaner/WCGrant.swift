@@ -30,6 +30,8 @@ enum WCGrant {
             let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
             if fd >= 0 {
                 close(fd)
+                preferredAlternative = alternative
+                return handle
             } else if errno == EPERM {
                 // This token was consumed, but sandbox access is still denied.
                 // Release it and retry with the other supported query flags.
@@ -40,8 +42,8 @@ enum WCGrant {
             // EACCES is a filesystem permission failure, not a token failure.
             // Actual directory readability is separately enforced by the
             // existing scan/cleanup validators.
-            // Remember the latest flag set that actually granted access.
-            preferredAlternative = alternative
+            // EACCES can be a filesystem/ACL denial even after an extension
+            // is granted. Do not treat it as a verified preferred flag.
             return handle
         }
         return lastError

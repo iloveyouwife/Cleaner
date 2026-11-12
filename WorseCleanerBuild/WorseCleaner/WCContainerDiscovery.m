@@ -103,10 +103,12 @@ NSString *WCFindLaunchServicesStoreQuick(void) {
         }
     }
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
-    NSTimeInterval lastAttempt = [saved[@"lsTriedAt"] respondsToSelector:@selector(doubleValue)]
-        ? [saved[@"lsTriedAt"] doubleValue] : 0;
-    if (lastAttempt > 0 && now >= lastAttempt &&
-        now - lastAttempt < kWCLSReverseRetry) return nil;
+    // Throttle only known misses, not an earlier successful lookup whose
+    // database file has since been replaced.
+    NSTimeInterval lastMiss = [saved[@"lsMissAt"] respondsToSelector:@selector(doubleValue)]
+        ? [saved[@"lsMissAt"] doubleValue] : 0;
+    if (lastMiss > 0 && now >= lastMiss &&
+        now - lastMiss < kWCLSReverseRetry) return nil;
     fsid_t fsid = {0};
     uint64_t probe = 0;
     if (!WCProbeDataVolume(&fsid, &probe)) return nil;
@@ -118,11 +120,12 @@ NSString *WCFindLaunchServicesStoreQuick(void) {
         if (found) {
             updated[@"lsStore"] = found;
             updated[@"lsInode"] = @(inode);
+            [updated removeObjectForKey:@"lsMissAt"];
         } else {
             [updated removeObjectForKey:@"lsStore"];
             [updated removeObjectForKey:@"lsInode"];
+            updated[@"lsMissAt"] = @(now);
         }
-        // A negative lookup must also be throttled.
         updated[@"lsTriedAt"] = @(now);
         [updated writeToFile:indexPath atomically:YES];
     }
