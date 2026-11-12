@@ -53,8 +53,8 @@ struct ContentView: View {
         reduceMotion ? nil : .easeInOut(duration: 0.28)
     }
 
-    // The List's real scroll offset is the only search visibility signal.
-    // No drag thresholds, top-state gates, or end-of-gesture snapping.
+    // The search scroll area is fixed at 70pt, matching the original
+    // 42pt capsule plus 18pt top and 10pt bottom. It does not resize List.
     private var searchFullHeight: CGFloat { searchBarHeight + 28 }
     private var searchHeaderHeight: CGFloat {
         max(0, searchFullHeight - searchCollapse)
@@ -176,25 +176,12 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Never put this first responder in a List Section header:
-                // dynamic result rows must not detach/recreate its keyboard.
-                // Keep v71 search shape, active shrink animation and cancel.
-                animatedSearchBar
-                    .padding(.horizontal, 22)
-                    .padding(.top, 18)
-                    .padding(.bottom, 10)
-                    .frame(height: searchFullHeight, alignment: .top)
-                    // Move the complete search capsule upward as content
-                    // scrolls. Do not chop it from the bottom in place.
-                    .offset(y: -searchCollapse)
-                    .frame(height: searchHeaderHeight, alignment: .top)
-                    .clipped()
-                    .allowsHitTesting(searchHeaderHeight > 20)
-                    .accessibilityHidden(searchHeaderHeight <= 1)
-                    .background(Color(uiColor: .systemGroupedBackground))
-
-                List {
+            // The List owns the ENTIRE scrolling viewport. In v80-v84 the
+            // search wrapper's variable height shrank the List, feeding back
+            // into its contentOffset and causing double-swipe/sticky states.
+            // Reserve one fixed 70pt search region INSIDE scroll content;
+            // draw the persistent field as an overlay outside recycled rows.
+            List {
                     summarySection
                     if !model.appGroupReady || !model.groupConfirmed {
                         signingWarning
@@ -231,7 +218,7 @@ struct ContentView: View {
                 // extra opaque/hard separator strip. Keep the List's native
                 // scrolling and the persistent search responder unchanged.
                 .scrollEdgeEffectStyle(.soft, for: .top)
-                .contentMargins(.top, 0, for: .scrollContent)
+                .contentMargins(.top, searchFullHeight, for: .scrollContent)
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     // Read the scroll coordinate relative to the List's top.
                     // A single absolute position allows immediate recovery on
@@ -245,9 +232,9 @@ struct ContentView: View {
                         scrollOffset: offset, fullHeight: searchFullHeight
                     )
                     guard abs(next - searchCollapse) > 0.35 else { return }
-                    // Smooth coarse scroll notifications. Removing the v82
-                    // 50% snap and near-top gate prevents random sticky bars.
-                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.16, extraBounce: 0)) {
+                    // Only the overlay transform animates. Because the
+                    // List frame never changes, there is no geometry loop.
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.12, extraBounce: 0)) {
                         searchCollapse = next
                     }
                 }
@@ -278,16 +265,29 @@ struct ContentView: View {
                     }
                 )
                 .task(id: searchText) {
-                // The keyboard remains responsive; filter once after a brief
-                // typing pause, instead of rebuilding every list on each key.
-                if !searchText.isEmpty {
-                    try? await Task.sleep(nanoseconds: 160_000_000)
-                    guard !Task.isCancelled else { return }
+                    // Keep the stable field alive while only the List's data
+                    // changes, with the original 160ms query debounce.
+                    if !searchText.isEmpty {
+                        try? await Task.sleep(nanoseconds: 160_000_000)
+                        guard !Task.isCancelled else { return }
+                    }
+                    appliedSearchText = searchText
+                    rebuildSearchResults()
                 }
-                appliedSearchText = searchText
-                rebuildSearchResults()
-            }
-            }
+                // The search overlay has a CONSTANT layout footprint; only
+                // its drawing moves upward. Neither the List viewport nor
+                // its scrollContent inset changes while the user scrolls.
+                .overlay(alignment: .topLeading) {
+                    animatedSearchBar
+                        .padding(.horizontal, 22)
+                        .padding(.top, 18)
+                        .padding(.bottom, 10)
+                        .offset(y: -searchCollapse)
+                        .frame(height: searchFullHeight, alignment: .top)
+                        .clipped()
+                        .allowsHitTesting(searchHeaderHeight > 20)
+                        .accessibilityHidden(searchHeaderHeight <= 1)
+                }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("App 缓存清理")
             .navigationBarTitleDisplayMode(.inline)
