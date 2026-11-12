@@ -116,7 +116,6 @@ enum WCAppNames {
         let root = "/var/containers/Bundle/Application"
         let fm = FileManager.default
         var readableApps = 0
-        var readableBundleRoots = 0
         var enumeratedPaths: Set<String> = []
         func inspectBundleRoot(_ path: String) {
             let entries = (try? fm.contentsOfDirectory(atPath: path)) ?? []
@@ -159,10 +158,7 @@ enum WCAppNames {
                 let path = root + "/" + folder
                 let before = readableApps
                 inspectBundleRoot(path)
-                if readableApps > before {
-                    enumeratedPaths.insert(path)
-                    readableBundleRoots += 1
-                }
+                if readableApps > before { enumeratedPaths.insert(path) }
             }
             worse_query_release(rootLease)
         }
@@ -180,9 +176,7 @@ enum WCAppNames {
             let scopedLease = WCGrant.readablePath(path, groupID: groupID)
             guard scopedLease > 0 else { continue }
             perRootGrants += 1
-            let before = readableApps
             inspectBundleRoot(path)
-            if readableApps > before { readableBundleRoots += 1 }
             worse_query_release(scopedLease)
         }
         let lsInfo = ls?.diagnostics ?? "LaunchServices：数据库缺失、暂不可读或格式未通过路径校验，已使用原有识别回退。"

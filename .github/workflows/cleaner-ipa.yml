@@ -40,6 +40,9 @@ jobs:
           cd WorseCleanerBuild
           xcodegen generate
 
+      - name: Verify source safety invariants
+        run: python3 WorseCleanerBuild/scripts/verify_source_guards.py
+
       - name: Compile unsigned
         run: |
           set -euo pipefail
@@ -66,6 +69,22 @@ jobs:
           test -f "$app/zh-Hans.lproj/InfoPlist.strings"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDevelopmentRegion' "$app/Info.plist")" = "zh-Hans"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleLocalizations:0' "$app/Info.plist")" = "zh-Hans"
+
+      - name: Run Cleaner logic unit tests
+        run: |
+          set -euo pipefail
+          simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
+          test -n "$simulator_id"
+          xcodebuild test \
+            -project WorseCleanerBuild/WorseCleaner.xcodeproj \
+            -scheme WorseCleaner \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -derivedDataPath "$PWD/DerivedDataUnitTests" \
+            -only-testing:CleanerUnitTests \
+            CODE_SIGNING_ALLOWED=NO \
+            test
 
       - name: Package IPA
         run: |
@@ -216,6 +235,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$simulator_id" \
             -derivedDataPath "$PWD/DerivedDataUITests" \
             -resultBundlePath "$PWD/cleaner-ui-tests.xcresult" \
+            -only-testing:CleanerUITests \
             CODE_SIGNING_ALLOWED=NO \
             test
           mkdir -p ui-menu-screenshots

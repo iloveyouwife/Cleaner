@@ -1,0 +1,145 @@
+import Foundation
+import XCTest
+@testable import WorseCleaner
+
+final class CleanerUnitTests: XCTestCase {
+    private let uuidA = "6D5EB8BD-80D3-49C8-88A3-98AC3A2564DE"
+    private let uuidB = "3E8BDFE9-10F6-4EE3-9259-8489DD08FA61"
+
+    private func target(
+        _ uuid: String, prefix: String = "/var", bundleID: String = "com.example.sample"
+    ) -> WCTarget {
+        try! WCTarget(
+            bundleID: bundleID, name: "Sample",
+            path: "\(prefix)/mobile/Containers/Data/Application/\(uuid)"
+        )
+    }
+
+    func testVarAliasesDoNotDuplicateOneContainer() {
+        let existing = target(uuidA)
+        let alias = target(uuidA, prefix: "/private/var")
+        let result = WCPathDiscovery.mergeContainerCandidates(
+            existing: [existing], candidates: [alias], presence: { _ in .present }
+        )
+        XCTAssertEqual(result.apps.map(\.id), [existing.id])
+        XCTAssertFalse(result.changed)
+    }
+
+    func testStaleMCMCannotResurrectADeletedContainer() {
+        let removed = target(uuidA)
+        let present = target(uuidB)
+        let result = WCPathDiscovery.mergeContainerCandidates(
+            existing: [removed, present], candidates: [removed, present],
+            presence: { path in
+                WCPathDiscovery.containerIdentity(path) ==
+                    WCPathDiscovery.containerIdentity(removed.path) ? .missing : .present
+            }
+        )
+        XCTAssertEqual(result.apps.map(\.id), [present.id])
+        XCTAssertTrue(result.changed)
+    }
+
+    func testUnknownAccessMustKeepExistingContainers() {
+        let old = target(uuidA)
+        let result = WCPathDiscovery.mergeContainerCandidates(
+            existing: [old], candidates: [], presence: { _ in .unknown }
+        )
+        XCTAssertEqual(result.apps.map(\.id), [old.id])
+        XCTAssertFalse(result.changed)
+    }
+
+    func testNewContainerIsAddedOnlyOnce() {
+        let old = target(uuidA)
+        let new = target(uuidB)
+        let alias = target(uuidB, prefix: "/private/var")
+        let result = WCPathDiscovery.mergeContainerCandidates(
+            existing: [old], candidates: [new, alias], presence: { _ in .present }
+        )
+        XCTAssertEqual(result.apps.count, 2)
+        XCTAssertTrue(result.changed)
+    }
+
+    func testManualContainerIsNotRemovedByQuickCheck() {
+        let manual = target(uuidA, bundleID: "manual")
+        let result = WCPathDiscovery.mergeContainerCandidates(
+            existing: [manual], candidates: [], presence: { _ in .missing }
+        )
+        XCTAssertEqual(result.apps.map(\.id), [manual.id])
+        XCTAssertFalse(result.changed)
+    }
+
+    func testUnavailableLaunchServicesStampNeverAuthorizesReuse() {
+        let good = WCLaunchServicesStamp(
+            device: 1, inode: 2, size: 4096,
+            modifiedSeconds: 10, modifiedNanoseconds: 0,
+            changedSeconds: 10, changedNanoseconds: 0
+        )
+        let changed = WCLaunchServicesStamp(
+            device: 1, inode: 3, size: 4096,
+            modifiedSeconds: 10, modifiedNanoseconds: 0,
+            changedSeconds: 10, changedNanoseconds: 0
+        )
+        XCTAssertFalse(WCPathDiscovery.stampIsCurrent(nil, nil))
+        XCTAssertFalse(WCPathDiscovery.stampIsCurrent(nil, good))
+        XCTAssertFalse(WCPathDiscovery.stampIsCurrent(good, nil))
+        XCTAssertFalse(WCPathDiscovery.stampIsCurrent(good, changed))
+        XCTAssertTrue(WCPathDiscovery.stampIsCurrent(good, good))
+    }
+
+    func testDeletionAllowlistRemainsCachesAndTmpOnly() {
+        XCTAssertEqual(
+            LimitedCleanerService.allowedDirectoryComponents,
+            [["Library", "Caches"], ["tmp"]]
+        )
+    }
+
+    func testCleanupPreservesDocumentsAndSymlinksAndCountsUnremovedDirectory() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(
+            "CleanerUnitTests-\(UUID().uuidString)", isDirectory: true
+        )
+        defer { try? fm.removeItem(at: root) }
+        let cache = root.appendingPathComponent("Library/Caches", isDirectory: true)
+        let nested = cache.appendingPathComponent("nested", isDirectory: true)
+        let temp = root.appendingPathComponent("tmp", isDirectory: true)
+        let docs = root.appendingPathComponent("Documents", isDirectory: true)
+        for dir in [nested, temp, docs] {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        try Data("cache".utf8).write(to: nested.appendingPathComponent("a.bin"))
+        try Data("temp".utf8).write(to: temp.appendingPathComponent("b.bin"))
+        let protected = docs.appendingPathComponent("keep.txt")
+        try Data("keep".utf8).write(to: protected)
+        let link = nested.appendingPathComponent("outside-link")
+        try fm.createSymbolicLink(atPath: link.path, withDestinationPath: protected.path)
+
+        let result = try LimitedCleanerService.clean(
+            containerURL: root, rootValidator: { $0.path == root.path }
+        )
+
+        XCTAssertTrue(fm.fileExists(atPath: protected.path))
+        XCTAssertNotNil(try? fm.destinationOfSymbolicLink(atPath: link.path))
+        XCTAssertFalse(fm.fileExists(atPath: temp.appendingPathComponent("b.bin").path))
+        XCTAssertFalse(fm.fileExists(atPath: nested.appendingPathComponent("a.bin").path))
+        XCTAssertEqual(result.removedItemCount, 2)
+        XCTAssertGreaterThanOrEqual(result.failedItemCount, 1)
+    }
+
+    func testEmptyCacheDirectoriesDoNotTouchDocuments() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(
+            "CleanerUnitTests-\(UUID().uuidString)", isDirectory: true
+        )
+        defer { try? fm.removeItem(at: root) }
+        let docs = root.appendingPathComponent("Documents", isDirectory: true)
+        try fm.createDirectory(at: docs, withIntermediateDirectories: true)
+        let preserved = docs.appendingPathComponent("keep.txt")
+        try Data("kept".utf8).write(to: preserved)
+        let result = try LimitedCleanerService.clean(
+            containerURL: root, rootValidator: { $0.path == root.path }
+        )
+        XCTAssertEqual(result.removedItemCount, 0)
+        XCTAssertEqual(result.failedItemCount, 0)
+        XCTAssertTrue(fm.fileExists(atPath: preserved.path))
+    }
+}

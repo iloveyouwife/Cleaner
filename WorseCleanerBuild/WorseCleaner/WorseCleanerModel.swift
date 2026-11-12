@@ -39,11 +39,6 @@ final class WorseCleanerModel: ObservableObject {
     private var lastLaunchServicesStamp: WCLaunchServicesStamp?
     private var completedCacheScan = false
 
-    private static func pathIdentity(_ path: String) -> String {
-        path.hasPrefix("/private/var/")
-            ? String(path.dropFirst("/private".count)) : path
-    }
-
     func setGroupConfirmed(_ value: Bool) {
         groupConfirmed = value && appGroupReady
         if groupConfirmed {
@@ -113,8 +108,7 @@ final class WorseCleanerModel: ObservableObject {
                 var seen = Set<String>()
                 discovered = (quick.data + apps).filter {
                     let path = $0.path
-                    let identity = path.hasPrefix("/private/var/")
-                        ? String(path.dropFirst("/private".count)) : path
+                    let identity = WCPathDiscovery.containerIdentity(path)
                     return seen.insert(identity).inserted
                 }
             } else {
@@ -197,9 +191,9 @@ final class WorseCleanerModel: ObservableObject {
                     let found = result.data
                     self.discoveredBundleRoots = result.bundles
                     self.discoveredLSStore = result.launchServicesStore
-                    let existing = Set(self.apps.map { Self.pathIdentity($0.path) })
+                    let existing = Set(self.apps.map { WCPathDiscovery.containerIdentity($0.path) })
                     self.apps.append(contentsOf: found.filter {
-                        !existing.contains(Self.pathIdentity($0.path))
+                        !existing.contains(WCPathDiscovery.containerIdentity($0.path))
                     })
                     self.status = "\(result.incremental ? "增量" : "完整")扫描 \(result.scannedInodes) 个 inode，发现 \(found.count - result.extensionCount) 个 App、\(result.extensionCount) 个扩展容器。当前列表 \(self.apps.count) 项。"
                     if !result.completeBound {
@@ -313,7 +307,7 @@ final class WorseCleanerModel: ObservableObject {
                 // Reuse names only if the database did not change during the scan.
                 // Cache sizes and access permissions are never cached.
                 self.catalogMemo = catalog.containers.count >= 2 &&
-                    scanStartLSStamp == scannedLSStamp
+                    WCPathDiscovery.stampIsCurrent(scanStartLSStamp, scannedLSStamp)
                     ? CatalogMemo(value: catalog, groupID: selectedGroup,
                                   targetIDs: targetIDs,
                                   finishedAt: ProcessInfo.processInfo.systemUptime)

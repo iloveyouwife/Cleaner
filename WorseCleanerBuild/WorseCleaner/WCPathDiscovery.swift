@@ -13,7 +13,67 @@ struct WCLaunchServicesStamp: Equatable {
     let changedNanoseconds: Int64
 }
 
+enum WCContainerPresence {
+    case present
+    case missing
+    case unknown
+}
+
 enum WCPathDiscovery {
+    // Compare equivalent /var and /private/var paths without changing the
+    // actual path used for permission checks or cleanup.
+    static func containerIdentity(_ path: String) -> String {
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        return normalized.hasPrefix("/private/var/")
+            ? String(normalized.dropFirst("/private".count)) : normalized
+    }
+
+    static func containerPresence(_ path: String) -> WCContainerPresence {
+        var details = stat()
+        if lstat(path, &details) == 0 {
+            return (details.st_mode & S_IFMT) == S_IFDIR ? .present : .missing
+        }
+        let code = errno
+        return code == ENOENT || code == ENOTDIR ? .missing : .unknown
+    }
+
+    // A partial catalog cannot remove known items, and a stale MCM result
+    // cannot reintroduce a container known to be absent on disk.
+    static func mergeContainerCandidates(
+        existing: [WCTarget], candidates: [WCTarget],
+        presence: (String) -> WCContainerPresence
+    ) -> (apps: [WCTarget], changed: Bool) {
+        var observed = [String: WCContainerPresence]()
+        func keep(_ app: WCTarget) -> Bool {
+            if app.bundleID == "manual" { return true }
+            let key = containerIdentity(app.path)
+            let result: WCContainerPresence
+            if let prior = observed[key] {
+                result = prior
+            } else {
+                result = presence(app.path)
+                observed[key] = result
+            }
+            return result != .missing
+        }
+        var seen = Set<String>()
+        var merged = [WCTarget]()
+        for app in existing where keep(app) {
+            if seen.insert(containerIdentity(app.path)).inserted { merged.append(app) }
+        }
+        for app in candidates where keep(app) {
+            if seen.insert(containerIdentity(app.path)).inserted { merged.append(app) }
+        }
+        let original = Set(existing.map { containerIdentity($0.path) })
+        return (merged, seen != original || merged.count != existing.count)
+    }
+
+    static func stampIsCurrent(
+        _ previous: WCLaunchServicesStamp?, _ current: WCLaunchServicesStamp?
+    ) -> Bool {
+        guard let previous, let current else { return false }
+        return previous == current
+    }
     static func launchServicesStamp(storePath: String?, groupID: String) -> WCLaunchServicesStamp? {
         guard let storePath else { return nil }
         var details = stat()
@@ -44,35 +104,23 @@ enum WCPathDiscovery {
         previousStamp: WCLaunchServicesStamp?
     ) -> (apps: [WCTarget], changed: Bool, storePath: String?) {
         let currentStamp = launchServicesStamp(storePath: storePath, groupID: groupID)
-        let storeChanged = previousStamp != currentStamp
+        let storeChanged = !stampIsCurrent(previousStamp, currentStamp)
         var error: NSString?
         let raw = WCEnumerateApplicationContainers(&error)
         let mcm = raw.compactMap { item -> WCTarget? in
             guard let bundleID = item["bundleID"], let path = item["path"] else { return nil }
             return try? WCTarget(bundleID: bundleID, name: item["name"] ?? bundleID, path: path)
         }
-        let updatedIndex = storeChanged
+        // Unknown stamp invalidates reuse without triggering an expensive
+        // LaunchServices inode search when no readable database exists.
+        let updatedIndex = storeChanged && currentStamp != nil
             ? quickLaunchServicesRoots(groupID: groupID, knownPaths: Set(mcm.map(\.path)))
             : nil
-        let latest = (updatedIndex?.data ?? []) + mcm
-        var merged = [WCTarget]()
-        var knownPaths = Set<String>()
-        for old in existing {
-            // A manual entry remains user-owned until explicitly changed.
-            if old.bundleID != "manual" {
-                var details = stat()
-                if lstat(old.path, &details) != 0 {
-                    let code = errno
-                    if code == ENOENT || code == ENOTDIR { continue }
-                }
-            }
-            if knownPaths.insert(old.path).inserted { merged.append(old) }
-        }
-        for app in latest where knownPaths.insert(app.path).inserted {
-            merged.append(app)
-        }
-        let changed = storeChanged || Set(merged.map(\.path)) != Set(existing.map(\.path))
-        return (merged, changed, updatedIndex?.launchServicesStore)
+        let merged = mergeContainerCandidates(
+            existing: existing, candidates: (updatedIndex?.data ?? []) + mcm,
+            presence: containerPresence
+        )
+        return (merged.apps, storeChanged || merged.changed, updatedIndex?.launchServicesStore)
     }
     // Bundle/Application may be on a different volume, where an unprivileged
     // app cannot create an inode probe. Names remain best-effort; a missing
@@ -121,12 +169,13 @@ enum WCPathDiscovery {
         // containers absent from the current LS database. Keep those entries
         // in the list, without performing an expensive new full-volume walk.
         let cached = WCReadCachedDataContainers()
-        var known = Set(targets.map { $0.path.hasPrefix("/var/") ? "/private" + $0.path : $0.path })
+        var known = Set(targets.map { containerIdentity($0.path) })
         var reused = 0
         for (type, prefix) in [("apps", "App 容器 "), ("extensions", "扩展容器 ")] {
             for raw in cached?[type] ?? [] {
                 let path = raw.hasPrefix("/var/") ? "/private" + raw : raw
-                guard !known.contains(path), WCFileAccess.isValidApplicationContainer(path) else {
+                let key = containerIdentity(path)
+                guard !known.contains(key), WCFileAccess.isValidApplicationContainer(path) else {
                     continue
                 }
                 let uuid = URL(fileURLWithPath: path).lastPathComponent
@@ -136,7 +185,7 @@ enum WCPathDiscovery {
                     : prefix + String(uuid.prefix(8))
                 if let target = try? WCTarget(bundleID: bundleID, name: name, path: path) {
                     targets.append(target)
-                    known.insert(path)
+                    known.insert(key)
                     reused += 1
                 }
             }

@@ -104,8 +104,8 @@ enum WCFileAccess {
         // Some containers grant their root but not the two cache locations.
         // Retry an EPERM *only* for the allowed cache directories; never
         // request a grant for Documents, private metadata, or system paths.
-        for suffix in ["Library/Caches", "tmp"] {
-            let cachePath = target.path + "/" + suffix
+        for components in LimitedCleanerService.allowedDirectoryComponents {
+            let cachePath = target.path + "/" + components.joined(separator: "/")
             let descriptor = open(cachePath, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
             if descriptor >= 0 {
                 close(descriptor)
@@ -125,7 +125,7 @@ enum WCFileAccess {
         defer { close(descriptor) }
 
         var readableCount = 0
-        for components in [["Library", "Caches"], ["tmp"]] {
+        for components in LimitedCleanerService.allowedDirectoryComponents {
             var fd = dup(descriptor)
             guard fd >= 0 else {
                 throw WCFailure.inaccessible("容器句柄", errno)

@@ -49,7 +49,7 @@ enum LimitedCleanerService {
 
     /// This explicit allowlist is the product boundary. Do not add global `/var`
     /// paths here: this cleaner is intentionally limited to per-app disposable data.
-    static let allowedRelativeDirectories = ["Library/Caches", "tmp"]
+    static let allowedDirectoryComponents = [["Library", "Caches"], ["tmp"]]
 
     static func scan(
         containerURL: URL,
@@ -57,11 +57,11 @@ enum LimitedCleanerService {
     ) throws -> LimitedCleanerUsage {
         try withValidatedRootDescriptor(containerURL, rootValidator: rootValidator) { rootDescriptor in
             let cache = try scanAllowedDirectory(
-                components: ["Library", "Caches"],
+                components: allowedDirectoryComponents[0],
                 rootDescriptor: rootDescriptor
             )
             let temporary = try scanAllowedDirectory(
-                components: ["tmp"],
+                components: allowedDirectoryComponents[1],
                 rootDescriptor: rootDescriptor
             )
             return LimitedCleanerUsage(
@@ -80,8 +80,8 @@ enum LimitedCleanerService {
         var removal = RemovalSummary()
 
         try withValidatedRootDescriptor(containerURL, rootValidator: rootValidator) { rootDescriptor in
-            for components in [["Library", "Caches"], ["tmp"]] {
-                guard let directoryDescriptor = openDirectory(
+            for components in allowedDirectoryComponents {
+                guard let directoryDescriptor = try openDirectoryStrict(
                     components: components,
                     relativeTo: rootDescriptor
                 ) else {
@@ -162,28 +162,6 @@ enum LimitedCleanerService {
         return descriptor
     }
 
-    private static func openDirectory(
-        components: [String],
-        relativeTo rootDescriptor: Int32
-    ) -> Int32? {
-        var currentDescriptor = dup(rootDescriptor)
-        guard currentDescriptor >= 0 else { return nil }
-
-        for component in components {
-            let nextDescriptor = component.withCString {
-                openat(
-                    currentDescriptor,
-                    $0,
-                    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
-                )
-            }
-            close(currentDescriptor)
-            guard nextDescriptor >= 0 else { return nil }
-            currentDescriptor = nextDescriptor
-        }
-        return currentDescriptor
-    }
-
     private static func scanDirectory(_ directoryDescriptor: Int32) throws -> ScanSummary {
         var result = ScanSummary.empty
         try forEachEntryStrict(in: directoryDescriptor) { name, information in
@@ -259,7 +237,7 @@ enum LimitedCleanerService {
         _ directoryDescriptor: Int32,
         summary: inout RemovalSummary
     ) {
-        forEachEntry(in: directoryDescriptor) { name, information in
+        let traversalFailures = forEachEntry(in: directoryDescriptor) { name, information in
             switch information.st_mode & S_IFMT {
             case S_IFREG:
                 let result = name.withCString { unlinkat(directoryDescriptor, $0, 0) }
@@ -277,7 +255,7 @@ enum LimitedCleanerService {
                     )
                 }
                 guard childDescriptor >= 0 else {
-                    if errno != ENOENT && errno != ELOOP {
+                    if errno != ENOENT {
                         summary.failedItemCount += 1
                     }
                     return
@@ -288,9 +266,7 @@ enum LimitedCleanerService {
                 let result = name.withCString {
                     unlinkat(directoryDescriptor, $0, AT_REMOVEDIR)
                 }
-                if result != 0,
-                   errno != ENOENT,
-                   errno != ENOTEMPTY {
+                if result != 0 && errno != ENOENT {
                     summary.failedItemCount += 1
                 }
             default:
@@ -298,35 +274,47 @@ enum LimitedCleanerService {
                 break
             }
         }
+        summary.failedItemCount += traversalFailures
     }
 
+    // Deletion is best-effort; unlike before, any failed directory iteration
+    // or metadata read is counted instead of silently reported as success.
     private static func forEachEntry(
         in directoryDescriptor: Int32,
         body: (String, stat) -> Void
-    ) {
-        let iterationDescriptor = dup(directoryDescriptor)
-        guard iterationDescriptor >= 0,
-              let directory = fdopendir(iterationDescriptor) else {
-            if iterationDescriptor >= 0 { close(iterationDescriptor) }
-            return
+    ) -> Int {
+        let fd = dup(directoryDescriptor)
+        guard fd >= 0 else { return 1 }
+        guard let directory = fdopendir(fd) else {
+            close(fd)
+            return 1
         }
         defer { closedir(directory) }
+        var failures = 0
 
-        while let entry = readdir(directory) {
+        while true {
+            errno = 0
+            guard let entry = readdir(directory) else {
+                if errno != 0 { failures += 1 }
+                break
+            }
             let name = withUnsafePointer(to: &entry.pointee.d_name) { pointer in
                 pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN) + 1) {
                     String(cString: $0)
                 }
             }
-            guard name != ".", name != ".." else { continue }
-
+            guard name != "." && name != ".." else { continue }
             var information = stat()
             let status = name.withCString {
                 fstatat(directoryDescriptor, $0, &information, AT_SYMLINK_NOFOLLOW)
             }
-            guard status == 0 else { continue }
+            if status != 0 {
+                if errno != ENOENT { failures += 1 }
+                continue
+            }
             body(name, information)
         }
+        return failures
     }
 }
 
