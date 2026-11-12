@@ -1,0 +1,60 @@
+name: Publish Cleaner v90 test IPA without changing v89
+
+on:
+  push:
+    branches: ['release/v90-test-ipa']
+    paths: ['.github/workflows/v90-test-release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: "43179088380"
+      SOURCE_SHA: "c205e35da11821307820ca21bfa3a2baec08dec7"
+      TAG: "v0.90.0-test"
+    steps:
+      - name: Validate exact v90 source run
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .head_sha)"
+          test "$actual" = "$SOURCE_SHA"
+          echo "Verified build run $SOURCE_RUN at $SOURCE_SHA"
+      - name: Retrieve and validate compiled IPA
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          gh run download "$SOURCE_RUN" -R "$GITHUB_REPOSITORY" -n Cleaner-unsigned-ipa -D artifact
+          ipa="artifact/WorseCleaner-iOS27-unsigned.ipa"
+          test -s "$ipa"
+          unzip -tq "$ipa"
+          python3 - <<'PY'
+          import plistlib, zipfile
+          p = "artifact/WorseCleaner-iOS27-unsigned.ipa"
+          with zipfile.ZipFile(p) as z:
+              info = plistlib.loads(z.read("Payload/WorseCleaner.app/Info.plist"))
+              assert info["CFBundleShortVersionString"] == "0.90.0", info
+              assert str(info["CFBundleVersion"]) == "90", info
+          print("Validated iOS app version 0.90.0 (90)")
+          PY
+          cp "$ipa" Cleaner-v0.90.0-test-unsigned.ipa
+          sha256sum Cleaner-v0.90.0-test-unsigned.ipa
+      - name: Publish isolated prerelease linked to v90 source
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Existing test release is immutable; not overwriting"
+            exit 0
+          fi
+          gh release create "$TAG" Cleaner-v0.90.0-test-unsigned.ipa \
+            -R "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --prerelease \
+            --title "Cleaner v0.90.0 测试版" \
+            --notes "基于 v90 测试源码（提交 $SOURCE_SHA）。修复未确认 App Group 时仍进行 App 发现和缓存扫描；保留高级设置入口，权限恢复后可重新扫描。v89 正式版及其 IPA 保持不变。此 IPA 为未签名构建，需使用用户自己的签名方式安装。"
