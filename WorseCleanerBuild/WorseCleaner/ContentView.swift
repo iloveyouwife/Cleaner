@@ -10,6 +10,15 @@ enum CleanerSearchScrollMetrics {
     }
 }
 
+// Bulk selection must never clear choices outside the active visible scope.
+enum CleanerSelectionScope {
+    static func toggle(selected: Set<String>, visible: Set<String>) -> Set<String> {
+        guard !visible.isEmpty else { return selected }
+        if visible.isSubset(of: selected) { return selected.subtracting(visible) }
+        return selected.union(visible)
+    }
+}
+
 // 3105 CleanerView's layout: search, summary, sortable/selectable app rows,
 // selection menu, bulk action, and confirmation. The backend is worse_query.
 struct ContentView: View {
@@ -148,11 +157,10 @@ struct ContentView: View {
     }
 
     private func toggleBulkSelection() {
-        if allBulkSelectable {
-            selectedIDs.removeAll()
-        } else {
-            selectedIDs.formUnion(bulkSelectableApps.map(\.id))
-        }
+        selectedIDs = CleanerSelectionScope.toggle(
+            selected: selectedIDs,
+            visible: Set(bulkSelectableApps.map(\.id))
+        )
     }
 
     private func isUnknownContainer(_ app: WCTarget) -> Bool {
@@ -361,7 +369,6 @@ struct ContentView: View {
             }
             .onChange(of: model.excludedPaths) { _, _ in rebuildOrderedApps() }
             .onChange(of: largestFirst) { _, _ in rebuildOrderedApps() }
-            .onChange(of: availableSize) { _, _ in rebuildOrderedApps() }
             .onChange(of: model.busy) { _, busy in
                 if !busy {
                     rebuildOrderedApps()

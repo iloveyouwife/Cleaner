@@ -266,11 +266,13 @@ final class WorseCleanerModel: ObservableObject {
             var namedCount = 0
             var readableButUnnamed = 0
             var metadataErrors: [Int32: Int] = [:]
+            var scanErrors: [String: Int] = [:]
             for (index, target) in targets.enumerated() {
-                if let inspection = try? WCFileAccess.inspect(
-                    target, groupID: selectedGroup, knownNames: catalog.names,
-                    knownContainers: catalog.containers
-                ) {
+                do {
+                    let inspection = try WCFileAccess.inspect(
+                        target, groupID: selectedGroup, knownNames: catalog.names,
+                        knownContainers: catalog.containers
+                    )
                     results[target.id] = inspection.usage
                     identities[target.id] = inspection.target
                     identityCounts[inspection.identitySource, default: 0] += 1
@@ -283,8 +285,10 @@ final class WorseCleanerModel: ObservableObject {
                     if let code = inspection.metadataErrno {
                         metadataErrors[code, default: 0] += 1
                     }
-                } else {
+                } catch {
                     failures += 1
+                    let reason = String(error.localizedDescription.prefix(180))
+                    scanErrors[reason, default: 0] += 1
                 }
                 let now = ProcessInfo.processInfo.systemUptime
                 if now - lastProgressUpdate >= 0.15 || index + 1 == targets.count {
@@ -325,10 +329,13 @@ final class WorseCleanerModel: ObservableObject {
                 self.status = "扫描完成：\(results.count)/\(targets.count) 个容器可访问，" +
                     "识别名称 \(namedCount) 个，识别 Bundle ID \(readableButUnnamed) 个。" +
                     (failures == 0 ? "" : " 扫描失败 \(failures) 个。") + permissionHint
+                let scanFailures = scanErrors.sorted { $0.value > $1.value }.prefix(3)
+                    .map { "\($0.key) ×\($0.value)" }.joined(separator: "\n")
                 self.accessDiagnostics = discoveryInfo + "\n" + catalog.diagnostics +
                     "\n扫描耗时：名称索引 \(String(format: "%.1f", catalogDuration)) 秒，缓存计量 \(String(format: "%.1f", inspectionDuration)) 秒。" +
                     "\n" + stats + "\n" + methods +
-                    (access.isEmpty ? "" : "\n元数据访问错误：\(access)。EPERM(1) 通常表示沙盒不允许读取该文件，缓存目录可访问不代表元数据可访问。")
+                    (access.isEmpty ? "" : "\n元数据访问错误：\(access)。EPERM(1) 通常表示沙盒不允许读取该文件，缓存目录可访问不代表元数据可访问。") +
+                    (scanFailures.isEmpty ? "" : "\n扫描失败原因（最多三类）：\n\(scanFailures)")
             }
         }
     }
@@ -398,7 +405,12 @@ final class WorseCleanerModel: ObservableObject {
                     removed += result.removedItemCount
                     failures += result.failedItemCount
                 } catch {
-                    failures += 1
+                    if let partial = error as? LimitedCleanerError {
+                        removed += partial.confirmedRemovedItems
+                        failures += partial.additionalFailureCount
+                    } else {
+                        failures += 1
+                    }
                     failedIDs.insert(target.id)
                 }
             }
@@ -406,7 +418,7 @@ final class WorseCleanerModel: ObservableObject {
                 for id in failedIDs { self.usage.removeValue(forKey: id) }
                 for (key, result) in latest { self.usage[key] = result }
                 self.busy = false
-                self.status = "已删除 \(removed) 项，释放约 \(CleanerSizeText.bytes(freed))。失败或未验证 \(failures) 项。"
+                self.status = "已确认删除 \(removed) 项，已复核释放约 \(CleanerSizeText.bytes(freed))。失败或未验证 \(failures) 项。"
             }
         }
     }

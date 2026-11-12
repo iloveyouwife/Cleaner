@@ -33,6 +33,21 @@ struct LimitedCleanerResult: Equatable {
 enum LimitedCleanerError: LocalizedError, Equatable {
     case unsafeContainerRoot
     case inaccessible(String, Int32)
+    // Unlinks can succeed before post-clean verification fails. Report known
+    // deleted entries but never infer the bytes freed without an after scan.
+    case postCleanupVerificationFailed(removed: Int, failures: Int, reason: String)
+
+    var confirmedRemovedItems: Int {
+        if case .postCleanupVerificationFailed(let removed, _, _) = self { return removed }
+        return 0
+    }
+
+    var additionalFailureCount: Int {
+        if case .postCleanupVerificationFailed(_, let failures, _) = self {
+            return failures + 1 // include the post-cleanup verification failure
+        }
+        return 1
+    }
 
     var errorDescription: String? {
         switch self {
@@ -40,6 +55,8 @@ enum LimitedCleanerError: LocalizedError, Equatable {
             return "无法安全打开 App 容器根目录。"
         case .inaccessible(let path, let code):
             return "缓存内部的 \(path) 不可读取（errno=\(code)）。不能将它计为 0 KB。"
+        case .postCleanupVerificationFailed(let removed, let failures, let reason):
+            return "已确认删除 \(removed) 项，删除失败 \(failures) 项，清理后复核失败：\(reason)。释放字节未计入。"
         }
     }
 }
@@ -92,7 +109,16 @@ enum LimitedCleanerService {
             }
         }
 
-        let after = try scan(containerURL: containerURL, rootValidator: rootValidator)
+        let after: LimitedCleanerUsage
+        do {
+            after = try scan(containerURL: containerURL, rootValidator: rootValidator)
+        } catch {
+            throw LimitedCleanerError.postCleanupVerificationFailed(
+                removed: removal.removedItemCount,
+                failures: removal.failedItemCount,
+                reason: error.localizedDescription
+            )
+        }
         return LimitedCleanerResult(
             before: before,
             after: after,
