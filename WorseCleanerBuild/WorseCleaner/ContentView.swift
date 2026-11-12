@@ -212,6 +212,12 @@ struct ContentView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                // Match the gentle blur under the floating top toolbar in
+                // the reference recording. Use the system's native SOFT
+                // scroll-edge treatment, not a custom glass overlay or an
+                // extra opaque/hard separator strip. Keep the List's native
+                // scrolling and the persistent search responder unchanged.
+                .scrollEdgeEffectStyle(.soft, for: .top)
                 .contentMargins(.top, 0, for: .scrollContent)
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     // Geometry-based scrolling is continuous and tracks the
