@@ -1,44 +1,26 @@
-# Cleaner Legacy · iOS 15.4 TrollStore 只读探针
+# Cleaner Legacy v0.2 — iOS 15.4 启动兼容修正
 
-目标：在 **不影响 Cleaner v89 稳定版** 的独立研究分支，验证 iOS 15.4 + TrollStore 能否直接枚举 App 容器与读取 `Library/Caches` / `tmp`。
+## 上一版 v0.1 的明确问题
 
-## 已验证的架构差异
+- v0.1 IPA 不含 `Assets.car`、`CFBundleIcons`，图标确实没有被编入安装包。
+- v0.1 使用 Xcode 27 编译的 SwiftUI App，虽然 `MinimumOSVersion=15.4`，但没有测试 iOS 15.4 真实设备能否启动。具体闪退原因必须通过 iOS 崩溃日志确认，不能把编译成功当作真机兼容。
+- 上一版直接加 `com.apple.private.security.no-sandbox` 权限，但没有制作普通沙盒签名的对照包，无法排除权限签名导致的启动问题。
 
-Cleaner v89 使用 iOS 26+ 的 SwiftUI（`glassEffect`、`scrollEdgeEffectStyle`、`onScrollGeometryChange`、`onScrollPhaseChange`）以及 `worse_query` + App Group 沙盒授权，不能直接运行于 iOS 15.4。
+## v0.2 修复
 
-TrollStore 官方 README 说明：在支持版本上，可保留应用二进制内由 `ldid` 添加的任意 Entitlements；`com.apple.private.security.no-sandbox` 是支持的取消沙盒方式之一；**但安装器不是自动赋予每个应用全部访问权限**。iOS 15.4 属于支持版本。
+- **彻底移除可执行程序中的 SwiftUI 和 Swift 运行时依赖**：只编译 `LegacyProbe/ObjC/main.m`（UIKit + Objective-C），兼容系统提供的旧 API。
+- 复制原版 Cleaner v89 的 `AppIcon` 原始 1024 PNG 和资源目录，并在 Xcode 项目中配置 `ASSETCATALOG_COMPILER_APPICON_NAME`。构建中必须检查 `Assets.car` 与 `CFBundleIcons`。
+- 把启动和扫描分开：应用打开时只创建原生 UIKit 主界面，不自动扫描；必须点击按钮才做只读访问诊断。
+- 两种 IPA：`...-TrollStore.ipa` 保留 `no-sandbox` entitlement 供正常读容器；`...-LaunchOnly.ipa` 不请求该 entitlement，使用不同 Bundle ID，可用于区分是否签名权限引起闪退（此对照包预计无法读取其他 App）。
+- `MinimumOSVersion` 强制检查 iOS 15.4；对可执行文件运行 `otool -L`，禁止链接 SwiftUI 和任何 Swift 动态库。
+- 目录访问只使用 `open(O_NOFOLLOW)` 与 `readdir` 进行只读检查，不删除、重命名或写入任何其他 App 文件。
 
-官方来源：https://github.com/opa334/TrollStore
+## 安装和反馈
 
-## 当前探针做什么
+1. 使用 TrollStore 安装 `Cleaner-LegacyProbe-v0.2-iOS15.4-TrollStore.ipa`；如果旧探针已经安装，可先删除旧版再安装，避免缓存显示旧图标。
+2. 打开应用，首页必须立即显示“启动成功”和 iOS 系统版本；此时不会进行目录扫描。
+3. 点击“检查 App 容器读取权限”，查看容器总量、Caches/tmp 可读数量和 errno。
+4. 如果仍然闪退，用 **对照包** `Cleaner-LegacyProbe-v0.2-LaunchOnly.ipa` 检查是否能打开。它是正常沙盒应用，仅用于判断 SwiftUI、签名、设备版本原因，不代表已经有读取权限。
+5. 如果两个版本均闪退，取“设置→隐私与安全性→分析与改进→分析数据”的应用崩溃日志（含 `Termination Reason` / `Exception Type`）才能定位剩余原因。
 
-- 单独的 iOS **15.4 最低部署目标**，使用 iOS 15 原生支持的 `NavigationView` / `List`，不使用新系统 SwiftUI 修饰符。
-- 不加载 Cleaner 原本的 `worse_query`、`WCGrant`、LaunchServices 私有索引及 App Group 授权。
-- 通过文件系统直接枚举 `/var/mobile/Containers/Data/Application`，用 `open(O_NOFOLLOW | O_DIRECTORY)` 验证根目录、`Library/Caches` 和 `tmp` 能否访问。
-- 默认请求 **仅** `com.apple.private.security.no-sandbox = true`，不加入危险的 banned entitlements、不使用 `platform-application` 或 root helper。
-- **严格只读**，不移动/删除/修改任何文件；旨在区分“签名未生效”“只能安装”“真的可读取目标目录”。
-- UI 展示具体 errno，包括 `EPERM` 与 `ENOENT`，不能把无权限显示为 0 KB。
-
-## 编译与签名
-
-独立 GitHub Actions 使用 Xcode 27 SDK 编译 iOS 15.4 Deployment Target，再运行：
-
-```bash
-ldid -SLegacyProbe/LegacyProbe/LegacyProbe.entitlements Payload/LegacyProbe.app/LegacyProbe
-ldid -e Payload/LegacyProbe.app/LegacyProbe
-```
-
-然后打包 `Cleaner-LegacyProbe-iOS15.4-TrollStore.ipa`，用 TrollStore 安装。IPA 仅用于适配性验证，不是正式清理版本。
-
-请在手机上打开探针 → 点击「检查 App 容器读取权限」→ 查看发现数、可打开 Caches 和 tmp 的数量及 errno。尚不能保证 iOS 15.4 真机已经通过，必须用目标设备验证。
-
-## 确认读权限后接入清理功能的方案
-
-1. 保留原版 `LimitedCleanerService` 文件描述符式安全操作（`openat`/`O_NOFOLLOW`），仅允许 `Library/Caches` 和 `tmp`；项目须遵守该文件的 GPL-3.0-or-later 来源许可。
-2. 建立 `LegacyFileAccess` 适配层，绕过 `WCGrant.readablePath`、`worse_query` 和 App Group，但每次扫描、每次删除都校验目标根目录是带 UUID 的 App 容器。
-3. 将 Finder 从 MCM / LaunchServices 漏洞路径改为直接读目录；App 名称需要可验证的元数据映射，不可把 UUID 猜成应用名。
-4. UI 使用 iOS 15 支持的 `NavigationView`、`List` 和简单 `TextField`；先解决启动、扫描和删除安全性，再按原版设计逐步复刻。
-5. 只允许明确勾选后的清理，删除后重新扫描验证统计；对锁定文件、运行中的 App、沙盒权限失败显示错误，不夸大释放空间。
-6. 做完单元、模拟器及真实 iOS 15.4 + TrollStore 测试，再决定发布独立 Legacy 清理 IPA。
-
-当前 branch：`research/ios15-trollstore`。正式 v89 的 `main` 未修改。
+> 不能通过模拟器替代 iOS 15.4 + TrollStore 设备实测。保留 Cleaner v89 正式版和清理逻辑原样。

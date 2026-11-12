@@ -6,7 +6,6 @@ options:
   xcodeVersion: "27.0"
 settings:
   base:
-    SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1"
     CODE_SIGN_STYLE: Manual
 targets:
@@ -14,17 +13,21 @@ targets:
     type: application
     platform: iOS
     sources:
-      - path: LegacyProbe
+      # Do NOT compile the historical SwiftUI prototype on iOS 15.
+      - path: LegacyProbe/ObjC
+      - path: LegacyProbe/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.iloveyouwife.cleaner.legacyprobe
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: LegacyProbe/LegacyProbe.entitlements
-        INFOPLIST_KEY_CFBundleDisplayName: Cleaner Legacy Probe
+        INFOPLIST_KEY_CFBundleDisplayName: Cleaner Legacy
         INFOPLIST_KEY_CFBundleDevelopmentRegion: zh-Hans
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 1
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: 0.2.0
+        CURRENT_PROJECT_VERSION: 2
         IPHONEOS_DEPLOYMENT_TARGET: "15.4"
+        TARGETED_DEVICE_FAMILY: "1"
 schemes:
   LegacyProbe:
     build:

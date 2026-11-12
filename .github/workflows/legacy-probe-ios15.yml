@@ -14,7 +14,7 @@ permissions:
 jobs:
   legacy-probe:
     runs-on: xcode-27
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode 27
@@ -28,7 +28,7 @@ jobs:
         run: |
           cd LegacyProbe
           xcodegen generate
-      - name: Build iOS 15.4 target
+      - name: Build Objective-C only iOS 15.4 target
         run: |
           set -euo pipefail
           xcodebuild \
@@ -40,32 +40,51 @@ jobs:
             -derivedDataPath "$PWD/LegacyDerivedData" \
             CODE_SIGNING_ALLOWED=NO \
             build
-      - name: Validate minimum OS and apply TrollStore entitlement
+      - name: Check legacy deployment, compiled app icon, no Swift runtime
         run: |
           set -euo pipefail
           app="LegacyDerivedData/Build/Products/Release-iphoneos/LegacyProbe.app"
           test -d "$app"
-          min_os="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")"
-          echo "MinimumOSVersion=$min_os"
-          test "$min_os" = "15.4"
-          # Only the single, explicitly requested unsandbox entitlement.
-          ! grep -Eq "com.apple.private.cs.debugger|dynamic-codesigning|com.apple.private.skip-library-validation|platform-application" \
-            LegacyProbe/LegacyProbe/LegacyProbe.entitlements
-          ldid -SLegacyProbe/LegacyProbe/LegacyProbe.entitlements "$app/LegacyProbe"
-          ldid -e "$app/LegacyProbe" > legacy-embedded-entitlements.xml
-          grep -q "com.apple.private.security.no-sandbox" legacy-embedded-entitlements.xml
-          cat legacy-embedded-entitlements.xml
-      - name: Package read-only TrollStore probe IPA
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")" = "15.4"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")" = "LegacyProbe"
+          test -f "$app/Assets.car"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon' "$app/Info.plist"
+          otool -L "$app/LegacyProbe" | tee legacy-dependencies.txt
+          ! grep -q '/usr/lib/swift/' legacy-dependencies.txt
+          ! grep -q 'SwiftUI.framework' legacy-dependencies.txt
+          ! grep -q 'worse_query' legacy-dependencies.txt
+          file "$app/LegacyProbe"
+      - name: Sign read-only TrollStore no-sandbox probe
         run: |
           set -euo pipefail
           mkdir -p LegacyPayload/Payload
           cp -R LegacyDerivedData/Build/Products/Release-iphoneos/LegacyProbe.app LegacyPayload/Payload/
+          app="LegacyPayload/Payload/LegacyProbe.app"
+          ldid -SLegacyProbe/LegacyProbe/LegacyProbe.entitlements "$app/LegacyProbe"
+          ldid -e "$app/LegacyProbe" > legacy-embedded-entitlements.xml
+          grep -q "com.apple.private.security.no-sandbox" legacy-embedded-entitlements.xml
+          ! grep -Eq "com.apple.private.cs.debugger|dynamic-codesigning|com.apple.private.skip-library-validation" legacy-embedded-entitlements.xml
           cd LegacyPayload
-          zip -qr ../Cleaner-LegacyProbe-iOS15.4-TrollStore.ipa Payload
+          zip -qr ../Cleaner-LegacyProbe-v0.2-iOS15.4-TrollStore.ipa Payload
           cd ..
-          unzip -tq Cleaner-LegacyProbe-iOS15.4-TrollStore.ipa
-      - uses: actions/upload-artifact@v4
+          unzip -tq Cleaner-LegacyProbe-v0.2-iOS15.4-TrollStore.ipa
+      - name: Package sandbox-only launch diagnostic as fallback
+        run: |
+          set -euo pipefail
+          mkdir -p SandboxPayload/Payload
+          cp -R LegacyDerivedData/Build/Products/Release-iphoneos/LegacyProbe.app SandboxPayload/Payload/
+          app="SandboxPayload/Payload/LegacyProbe.app"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.iloveyouwife.cleaner.legacyprobe.sandbox' "$app/Info.plist"
+          ldid -S "$app/LegacyProbe"
+          cd SandboxPayload
+          zip -qr ../Cleaner-LegacyProbe-v0.2-LaunchOnly.ipa Payload
+          cd ..
+          unzip -tq Cleaner-LegacyProbe-v0.2-LaunchOnly.ipa
+      - name: Upload both test IPAs
+        uses: actions/upload-artifact@v4
         with:
-          name: Cleaner-LegacyProbe-iOS15.4-TrollStore
-          path: Cleaner-LegacyProbe-iOS15.4-TrollStore.ipa
+          name: Cleaner-LegacyProbe-v0.2-iOS15.4
+          path: |
+            Cleaner-LegacyProbe-v0.2-iOS15.4-TrollStore.ipa
+            Cleaner-LegacyProbe-v0.2-LaunchOnly.ipa
           if-no-files-found: error
