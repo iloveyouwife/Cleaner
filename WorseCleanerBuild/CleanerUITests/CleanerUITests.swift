@@ -134,11 +134,11 @@ final class CleanerUITests: XCTestCase {
         XCTAssertLessThan(abs(search.frame.width - inactiveFrame.width), 6)
         search.tap()
         app.swipeUp()
-        capture("v71-search-scroll-hidden")
+        capture("search-progressive-hide-after-scroll")
         app.swipeDown()
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         XCTAssertTrue(search.isHittable, "Pulling down must reveal search again.")
-        capture("v71-search-pull-revealed")
+        capture("search-progressive-reveal-after-scroll")
     }
 
     func testSearchDismissesOnBackgroundTap() {

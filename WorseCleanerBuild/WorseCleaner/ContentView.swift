@@ -16,7 +16,7 @@ struct ContentView: View {
     @StateObject private var model = WorseCleanerModel()
     @State private var searchText = ""
     @State private var searchPresented = false
-    @State private var searchDrawerVisible = true
+    @State private var searchScrollOffset: CGFloat = 0
     @FocusState private var searchFieldFocused: Bool
     @State private var appliedSearchText = ""
     @State private var orderedApps: [WCTarget] = []
@@ -42,6 +42,13 @@ struct ContentView: View {
     // search control outside the list's dynamic Section headers.
     private var searchAnimation: Animation? {
         reduceMotion ? nil : .easeInOut(duration: 0.28)
+    }
+
+    // Follow the List's actual scroll displacement. The TextField remains
+    // a persistent sibling of List; only its clipped visual space changes.
+    // No drag-end visibility toggle, and no focus changes while filtering.
+    private var searchHeaderHeight: CGFloat {
+        max(0, searchBarHeight + 28 - max(0, searchScrollOffset))
     }
 
     private func setSearchPresented(_ presented: Bool, clearQuery: Bool = false) {
@@ -168,12 +175,11 @@ struct ContentView: View {
                     .padding(.horizontal, 22)
                     .padding(.top, 18)
                     .padding(.bottom, 10)
-                    .frame(height: searchDrawerVisible ? searchBarHeight + 28 : 0,
-                           alignment: .top)
+                    .frame(height: searchHeaderHeight, alignment: .top)
                     .clipped()
-                    .opacity(searchDrawerVisible ? 1 : 0)
-                    .allowsHitTesting(searchDrawerVisible)
-                    .animation(searchAnimation, value: searchDrawerVisible)
+                    .allowsHitTesting(searchHeaderHeight > 20)
+                    .accessibilityHidden(searchHeaderHeight <= 1)
+                    .background(Color(uiColor: .systemGroupedBackground))
 
                 List {
                     summarySection
@@ -207,6 +213,16 @@ struct ContentView: View {
                 }
                 .listStyle(.insetGrouped)
                 .contentMargins(.top, 0, for: .scrollContent)
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    // Geometry-based scrolling is continuous and tracks the
+                    // native List's rubber-band/drag progression. Always
+                    // normalize by the top inset so the top position is zero.
+                    max(0, geometry.contentOffset.y + geometry.contentInsets.top)
+                } action: { _, offset in
+                    if abs(searchScrollOffset - offset) > 0.25 {
+                        searchScrollOffset = offset
+                    }
+                }
                 .scrollDismissesKeyboard(.interactively)
                 .simultaneousGesture(
                     SpatialTapGesture().onEnded { _ in
@@ -220,12 +236,10 @@ struct ContentView: View {
                         let delta = value.translation
                         guard abs(delta.height) > 28,
                               abs(delta.height) > abs(delta.width) else { return }
-                        // v71 behavior: swipe away hides search and dismisses
-                        // keyboard, pull down reveals the search again.
+                        // Dragging dismisses an active search session, as in
+                        // v71. Visibility itself follows List scroll geometry
+                        // continuously above, not a boolean at gesture end.
                         if searchPresented { setSearchPresented(false) }
-                        withAnimation(searchAnimation) {
-                            searchDrawerVisible = delta.height > 0
-                        }
                     }
                 )
                 .task(id: searchText) {
@@ -239,6 +253,7 @@ struct ContentView: View {
                 rebuildSearchResults()
             }
             }
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("App 缓存清理")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
