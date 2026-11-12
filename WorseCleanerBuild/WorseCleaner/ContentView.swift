@@ -216,6 +216,12 @@ struct ContentView: View {
                     }
                 }
             .listStyle(.insetGrouped)
+            // v72/73 moved the search from the first section header to a
+            // stable row. Inset-grouped List still inserts a top content
+            // margin before that row; removing just this scroll-content
+            // margin restores the drawer's compact vertical placement.
+            // Keep the row/Section stable to preserve keyboard focus.
+            .contentMargins(.top, 0, for: .scrollContent)
             .coordinateSpace(name: "CleanerSearchList")
             .onPreferenceChange(CleanerSearchFrameKey.self) { searchFieldFrame = $0 }
             .scrollDismissesKeyboard(.interactively)
