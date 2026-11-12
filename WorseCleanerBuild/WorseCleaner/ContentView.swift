@@ -15,6 +15,9 @@ struct ContentView: View {
 
     @StateObject private var model = WorseCleanerModel()
     @State private var searchText = ""
+    @State private var searchPresented = false
+    @State private var searchDrawerVisible = true
+    @FocusState private var searchFieldFocused: Bool
     @State private var appliedSearchText = ""
     @State private var orderedApps: [WCTarget] = []
     @State private var searchSections = SearchSections()
@@ -33,6 +36,29 @@ struct ContentView: View {
     @State private var deviceStorageRefreshRevision = 0
     @ScaledMetric(relativeTo: .body) private var progressSize: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var shieldSize: CGFloat = 16
+    @ScaledMetric(relativeTo: .body) private var searchBarHeight: CGFloat = 42
+
+    // v71 timing and visual behavior, but now applied to a persistent
+    // search control outside the list's dynamic Section headers.
+    private var searchAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.28)
+    }
+
+    private func setSearchPresented(_ presented: Bool, clearQuery: Bool = false) {
+        if presented && searchPresented && searchFieldFocused && !clearQuery {
+            return
+        }
+        withAnimation(searchAnimation) {
+            searchPresented = presented
+            if presented || clearQuery { searchFieldFocused = presented }
+            if clearQuery { searchText = "" }
+        }
+        if !presented && !clearQuery {
+            DispatchQueue.main.async {
+                if !searchPresented { searchFieldFocused = false }
+            }
+        }
+    }
 
     private struct SearchSections {
         var named: [WCTarget] = []
@@ -134,7 +160,22 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            VStack(spacing: 0) {
+                // Never put this first responder in a List Section header:
+                // dynamic result rows must not detach/recreate its keyboard.
+                // Keep v71 search shape, active shrink animation and cancel.
+                animatedSearchBar
+                    .padding(.horizontal, 22)
+                    .padding(.top, 18)
+                    .padding(.bottom, 10)
+                    .frame(height: searchDrawerVisible ? searchBarHeight + 28 : 0,
+                           alignment: .top)
+                    .clipped()
+                    .opacity(searchDrawerVisible ? 1 : 0)
+                    .allowsHitTesting(searchDrawerVisible)
+                    .animation(searchAnimation, value: searchDrawerVisible)
+
+                List {
                     summarySection
                     if !model.appGroupReady || !model.groupConfirmed {
                         signingWarning
@@ -164,16 +205,30 @@ struct ContentView: View {
                         appSectionHeading("运行结果")
                     }
                 }
-            .listStyle(.insetGrouped)
-            .scrollDismissesKeyboard(.interactively)
-            // Use the iOS 27 native search drawer (as in Cleaner v57).
-            // UIKit/SwiftUI owns the actual search field and keyboard;
-            // filtered rows can update without replacing the first responder.
-            .searchable(text: $searchText,
-                        placement: .navigationBarDrawer(displayMode: .automatic),
-                        prompt: "搜索 App")
-            .searchPresentationToolbarBehavior(.avoidHidingContent)
-            .task(id: searchText) {
+                .listStyle(.insetGrouped)
+                .contentMargins(.top, 0, for: .scrollContent)
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    SpatialTapGesture().onEnded { _ in
+                        // All List taps are outside the persistent search bar.
+                        // Dismiss editing without clearing the current filter.
+                        if searchPresented { setSearchPresented(false) }
+                    }
+                )
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 20).onEnded { value in
+                        let delta = value.translation
+                        guard abs(delta.height) > 28,
+                              abs(delta.height) > abs(delta.width) else { return }
+                        // v71 behavior: swipe away hides search and dismisses
+                        // keyboard, pull down reveals the search again.
+                        if searchPresented { setSearchPresented(false) }
+                        withAnimation(searchAnimation) {
+                            searchDrawerVisible = delta.height > 0
+                        }
+                    }
+                )
+                .task(id: searchText) {
                 // The keyboard remains responsive; filter once after a brief
                 // typing pause, instead of rebuilding every list on each key.
                 if !searchText.isEmpty {
@@ -182,6 +237,7 @@ struct ContentView: View {
                 }
                 appliedSearchText = searchText
                 rebuildSearchResults()
+            }
             }
             .navigationTitle("App 缓存清理")
             .navigationBarTitleDisplayMode(.inline)
@@ -293,6 +349,81 @@ struct ContentView: View {
                 #endif
             }
         }
+    }
+
+    // The exact v71 active/inactive search animation and round close control,
+    // kept as a sibling of List so results never recreate the text responder.
+    private var animatedSearchBar: some View {
+        HStack(spacing: searchPresented ? 8 : 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Color(uiColor: .label))
+                    .accessibilityHidden(true)
+
+                TextField("搜索 App", text: $searchText)
+                    .font(.body)
+                    .foregroundStyle(Color(uiColor: .label))
+                    .focused($searchFieldFocused)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                    .accessibilityLabel("搜索 App")
+
+                if !searchText.isEmpty {
+                    Button {
+                        // Clear without resetting focus or swapping the field.
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.body)
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 25, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("清除搜索文字")
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: searchBarHeight)
+            .background {
+                ZStack {
+                    Capsule()
+                        .fill(Color(uiColor: .tertiarySystemFill))
+                        .opacity(searchPresented ? 0 : 1)
+                    Capsule()
+                        .fill(.clear)
+                        .glassEffect(.regular, in: Capsule())
+                        .opacity(searchPresented ? 1 : 0)
+                }
+            }
+            .contentShape(Capsule())
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    if !searchPresented { setSearchPresented(true) }
+                }
+            )
+
+            Button {
+                setSearchPresented(false, clearQuery: true)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.medium))
+                    .frame(width: searchBarHeight, height: searchBarHeight)
+                    .glassEffect(.regular, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭搜索")
+            .frame(width: searchPresented ? searchBarHeight : 0, alignment: .leading)
+            .offset(x: searchPresented ? 0 : searchBarHeight + 8)
+            .opacity(searchPresented ? 1 : 0)
+            .allowsHitTesting(searchPresented)
+            .accessibilityHidden(!searchPresented)
+        }
+        .frame(height: searchBarHeight)
+        .animation(searchAnimation, value: searchPresented)
     }
 
     private var summarySection: some View {

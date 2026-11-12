@@ -113,18 +113,32 @@ final class CleanerUITests: XCTestCase {
     func testSearchFocusKeepsNativeToolbarAndDismissesOnSwipe() {
         let app = launchPreview()
         let search = searchInput(in: app)
-        XCTAssertTrue(search.waitForExistence(timeout: 10),
-                      "The native search field should be visible.")
-        XCTAssertGreaterThan(search.frame.height, 25)
-        capture("native-search-before-activation")
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        let inactiveFrame = search.frame
+        capture("v71-search-inactive")
         search.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10),
-                      "Native iOS search must focus and show the keyboard.")
-        XCTAssertTrue(app.buttons["排序"].exists,
-                      "Search must not hide the app's sort control.")
-        capture("native-search-active")
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+        let activeFrame = search.frame
+        XCTAssertLessThan(abs(activeFrame.minX - inactiveFrame.minX), 6)
+        XCTAssertLessThan(abs(activeFrame.minY - inactiveFrame.minY), 6)
+        XCTAssertLessThan(abs(activeFrame.height - inactiveFrame.height), 6)
+        XCTAssertLessThan(activeFrame.width, inactiveFrame.width - 12,
+                          "Search should shrink smoothly from the trailing edge.")
+        let close = app.buttons["关闭搜索"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        XCTAssertTrue(close.isHittable)
+        capture("v71-search-animated-expanded")
+        close.tap()
+        XCTAssertFalse(close.isHittable, "Round close must dismiss active search.")
+        XCTAssertLessThan(abs(search.frame.width - inactiveFrame.width), 6)
+        search.tap()
         app.swipeUp()
-        capture("native-search-after-scroll")
+        capture("v71-search-scroll-hidden")
+        app.swipeDown()
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        XCTAssertTrue(search.isHittable, "Pulling down must reveal search again.")
+        capture("v71-search-pull-revealed")
     }
 
     func testSearchDismissesOnBackgroundTap() {
@@ -133,27 +147,29 @@ final class CleanerUITests: XCTestCase {
         XCTAssertTrue(search.waitForExistence(timeout: 10))
         search.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.36)).tap()
-        capture("native-search-background-tap")
-        // Let the OS decide how a background tap affects the keyboard.
-        // Do not artificially re-activate the search session.
+        let cancel = app.buttons["关闭搜索"]
+        XCTAssertTrue(cancel.isHittable)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.36)).tap()
+        XCTAssertFalse(cancel.isHittable, "Tapping the List must close search.")
+        capture("v71-search-outside-tap-dismiss")
     }
 
     func testSearchVerticalSpacingMatchesCompactDrawerLayout() {
         let app = launchPreview()
         let search = searchInput(in: app)
         let heading = app.staticTexts["有限清理模式"]
-        XCTAssertTrue(search.waitForExistence(timeout: 10),
-                      "Regression: native search drawer is missing.")
+        let nav = app.navigationBars.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
         XCTAssertTrue(heading.waitForExistence(timeout: 10))
-        XCTAssertTrue(search.isHittable,
-                      "Native search drawer must remain visible and tappable.")
-        XCTAssertGreaterThan(search.frame.height, 25)
-        XCTAssertLessThan(search.frame.minY, app.frame.height / 3,
-                          "Native search must not be pushed far down the page.")
-        XCTAssertLessThan(search.frame.maxY, heading.frame.maxY,
-                          "Search drawer must precede the summary heading.")
-        capture("native-search-drawer-position")
+        XCTAssertTrue(nav.waitForExistence(timeout: 10))
+        XCTAssertTrue(search.isHittable)
+        let topGap = search.frame.minY - nav.frame.maxY
+        let bottomGap = heading.frame.minY - search.frame.maxY
+        XCTAssertGreaterThanOrEqual(topGap, -4)
+        XCTAssertLessThan(topGap, 50, "Search is too far below toolbar.")
+        XCTAssertGreaterThanOrEqual(bottomGap, 0)
+        XCTAssertLessThan(bottomGap, 60, "Excess gap between search and heading.")
+        capture("v71-search-stable-layout")
     }
 
     func testContinuousSearchTypingPreservesKeyboardAndClearButton() {
@@ -163,25 +179,25 @@ final class CleanerUITests: XCTestCase {
         search.tap()
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
-
-        // QQ is present in the preview fixture; adding Z changes from a
-        // matching to an empty result. Deleting Z shows matches again.
-        search.typeText("QQ")
+        for character in ["Q", "Q", "Z"] {
+            search.typeText(character)
+            Thread.sleep(forTimeInterval: 0.35)
+            XCTAssertTrue(keyboard.isHittable,
+                          "The keyboard must not jump as filtered result sets change.")
+            XCTAssertTrue(search.isHittable)
+            XCTAssertTrue(app.buttons["关闭搜索"].isHittable)
+        }
+        let clear = app.buttons["清除搜索文字"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 5))
+        clear.tap()
         Thread.sleep(forTimeInterval: 0.35)
-        XCTAssertTrue(keyboard.isHittable, "Keyboard lost focus after results appeared.")
-        search.typeText("Z")
-        Thread.sleep(forTimeInterval: 0.35)
-        XCTAssertTrue(keyboard.isHittable, "Keyboard lost focus after results disappeared.")
-        search.typeText(XCUIKeyboardKey.delete.rawValue)
-        Thread.sleep(forTimeInterval: 0.35)
-        XCTAssertTrue(keyboard.isHittable, "Keyboard lost focus when results reappeared.")
-        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2))
-        Thread.sleep(forTimeInterval: 0.35)
-        XCTAssertTrue(keyboard.isHittable, "Keyboard lost focus after clearing search.")
+        XCTAssertTrue(keyboard.isHittable,
+                      "Clearing search to restore the full List must retain keyboard.")
+        XCTAssertFalse(clear.exists)
         search.typeText("Q")
         XCTAssertTrue(keyboard.isHittable,
-                      "Typing after clear must not require a second tap.")
-        capture("native-search-results-empty-restored-keyboard")
+                      "Search must continue accepting input without retapping.")
+        capture("search-results-change-with-stable-keyboard")
     }
 
     func testRepeatedSearchTapsKeepKeyboardOpen() {
@@ -191,12 +207,14 @@ final class CleanerUITests: XCTestCase {
         search.tap()
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+        let frame = search.frame
         for _ in 0..<3 {
             search.tap()
-            XCTAssertTrue(keyboard.isHittable,
-                          "Repeated taps should not repeatedly dismiss keyboard.")
+            XCTAssertTrue(keyboard.isHittable)
+            XCTAssertLessThan(abs(search.frame.width - frame.width), 6)
+            XCTAssertTrue(app.buttons["关闭搜索"].isHittable)
         }
-        capture("native-search-repeated-taps")
+        capture("search-repeated-taps-without-keyboard-bounce")
     }
 
     func testAdvancedSettingsRowsAndDiagnostics() {
