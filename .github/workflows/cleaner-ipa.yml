@@ -270,7 +270,9 @@ jobs:
             --output-path ui-menu-screenshots
 
       - name: Upload layout screenshot
-        if: always()
+        # Preserve diagnostics for test failures, but never prolong a
+        # cancelled superseded run by attempting expensive artifact upload.
+        if: ${{ !cancelled() }}
         # Screenshot attachment is optional. A transient GitHub artifact
         # service timeout must not turn passing code/tests into a failed run.
         # All build, safety, unit and UI checks above remain mandatory.
