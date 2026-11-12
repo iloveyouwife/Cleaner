@@ -62,14 +62,17 @@ checks = {
     "Verified grant flags are updated":
         "preferredAlternative = alternative" in grant
         and "if preferredAlternative == nil" not in grant,
-    "Self container excluded from scans and reject at deletion entrypoint":
-        "WCContainerSafety.eligibleTargets" in model
-        and "scanTargetCount = targets.count" in model
-        and "guard !WCContainerSafety.isCleanerContainer(target)" in engine
-        and "protectedCleanerContainer" in engine,
-    "Scan progress denominator excludes manual and self exclusions":
-        "model.scanTargetCount" in ui
+    "Only manual exclusions determine eligible scan targets":
+        "WCScanExclusions.eligibleTargets" in model
+        and "WCScanExclusions.eligibleTargets" in engine
+        and "protectedCleanerContainer" not in engine,
+    "Scan counts are cached, not recalculated during redraws":
+        "@Published private(set) var eligibleContainerCount = 0" in model
+        and "didSet { refreshEligibleContainerCount() }" in model
+        and "model.scanTargetCount" in ui
         and "model.eligibleContainerCount" in ui,
+    "Progress denominator matches manual exclusion filtering":
+        "scanTargetCount = targets.count" in model,
     "Unit test suite included in scheme":
         "CleanerUnitTests: [test]" in project and "- CleanerUnitTests" in project,
 }

@@ -18,35 +18,13 @@ struct WCTarget: Identifiable, Hashable {
     }
 }
 
-/// Self-protection uses both the signed bundle identifier and the actual
-/// data-container home path. The path check also blocks manual UUID entries
-/// whose bundle identity was not resolved (or was renamed by re-signing).
-enum WCContainerSafety {
-    static func isCleanerContainer(
-        _ target: WCTarget,
-        ownHomePath: String = NSHomeDirectory(),
-        ownBundleID: String? = Bundle.main.bundleIdentifier
-    ) -> Bool {
-        let targetPath = WCPathDiscovery.containerIdentity(target.path)
-        let homePath = WCPathDiscovery.containerIdentity(ownHomePath)
-        if !homePath.isEmpty && targetPath == homePath { return true }
-        if let ownBundleID, !ownBundleID.isEmpty,
-           target.bundleID == ownBundleID { return true }
-        return false
-    }
-
-    /// The same predicate drives progress counts, cache scans, and bulk clean.
-    /// Normalize excluded path aliases so /var and /private/var are equivalent.
-    static func eligibleTargets(
-        _ candidates: [WCTarget],
-        excludedPaths: Set<String>,
-        ownHomePath: String = NSHomeDirectory(),
-        ownBundleID: String? = Bundle.main.bundleIdentifier
-    ) -> [WCTarget] {
+/// Skip only manually excluded App containers. /var and /private/var
+/// refer to the same identity, including entries added by UUID.
+enum WCScanExclusions {
+    static func eligibleTargets(_ candidates: [WCTarget], excludedPaths: Set<String>) -> [WCTarget] {
         let excluded = Set(excludedPaths.map(WCPathDiscovery.containerIdentity))
         return candidates.filter {
-            !excluded.contains(WCPathDiscovery.containerIdentity($0.path)) &&
-            !isCleanerContainer($0, ownHomePath: ownHomePath, ownBundleID: ownBundleID)
+            !excluded.contains(WCPathDiscovery.containerIdentity($0.path))
         }
     }
 }
@@ -68,7 +46,6 @@ enum WCIdentitySource: String {
 
 enum WCFailure: LocalizedError {
     case invalidTarget
-    case protectedCleanerContainer
     case noAppGroup
     case unavailable(Int64)
     case inaccessible(String, Int32)
@@ -78,8 +55,6 @@ enum WCFailure: LocalizedError {
         switch self {
         case .invalidTarget:
             return "路径必须是 App 或扩展数据容器根目录，且末尾紧跟 UUID。"
-        case .protectedCleanerContainer:
-            return "为防止影响 Cleaner 正在使用的文件，禁止扫描或清理 Cleaner 自身数据容器。"
         case .noAppGroup:
             return "当前签名未提供所选 App Group 的访问权限。请检查已签名 IPA 的 entitlements 和 provisioning profile。"
         case .unavailable(let code):
@@ -211,9 +186,6 @@ enum WCFileAccess {
         _ target: WCTarget, groupID: String, knownNames: [String: String] = [:],
         knownContainers: [String: String] = [:]
     ) throws -> WCInspection {
-        guard !WCContainerSafety.isCleanerContainer(target) else {
-            throw WCFailure.protectedCleanerContainer
-        }
         return try withLease(for: target, groupID: groupID) {
             try checkReadableDirectories(target)
             let identity = inspectIdentity(target, knownNames: knownNames,
@@ -344,9 +316,6 @@ enum WCFileAccess {
     }
 
     static func clean(_ target: WCTarget, groupID: String) throws -> LimitedCleanerResult {
-        guard !WCContainerSafety.isCleanerContainer(target) else {
-            throw WCFailure.protectedCleanerContainer
-        }
         return try withLease(for: target, groupID: groupID) {
             try checkReadableDirectories(target)
             return try LimitedCleanerService.clean(

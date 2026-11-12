@@ -3,7 +3,9 @@ import Darwin
 
 @MainActor
 final class WorseCleanerModel: ObservableObject {
-    @Published var apps: [WCTarget] = []
+    @Published var apps: [WCTarget] = [] {
+        didSet { refreshEligibleContainerCount() }
+    }
     @Published var usage: [String: LimitedCleanerUsage] = [:]
     @Published var busy = false
     @Published var status = "尚未扫描任何 App。"
@@ -13,11 +15,8 @@ final class WorseCleanerModel: ObservableObject {
     @Published var groupConfirmed = false
     @Published var scannedAppCount = 0
     @Published private(set) var scanTargetCount = 0
-    /// Count actual cache-scan candidates, excluding manual exclusions and
-    /// Cleaner itself. Does not alter the discovery list or cache scope.
-    var eligibleContainerCount: Int {
-        WCContainerSafety.eligibleTargets(apps, excludedPaths: excludedPaths).count
-    }
+    /// Stored once when Apps or exclusions change, never per scroll redraw.
+    @Published private(set) var eligibleContainerCount = 0
     @Published var accessDiagnostics = "尚未进行容器访问诊断。"
     @Published private(set) var excludedPaths = Set(
         UserDefaults.standard.stringArray(forKey: "wc.excludedPaths") ?? []
@@ -54,14 +53,23 @@ final class WorseCleanerModel: ObservableObject {
         }
     }
 
+    private func refreshEligibleContainerCount() {
+        let next = WCScanExclusions.eligibleTargets(
+            apps, excludedPaths: excludedPaths
+        ).count
+        if next != eligibleContainerCount { eligibleContainerCount = next }
+    }
+
     func exclude(_ paths: Set<String>) {
         excludedPaths.formUnion(paths)
         UserDefaults.standard.set(Array(excludedPaths), forKey: "wc.excludedPaths")
+        refreshEligibleContainerCount()
     }
 
     func restoreExcluded(_ paths: Set<String>) {
         excludedPaths.subtract(paths)
         UserDefaults.standard.set(Array(excludedPaths), forKey: "wc.excludedPaths")
+        refreshEligibleContainerCount()
     }
 
     func refreshSigning() {
@@ -231,7 +239,7 @@ final class WorseCleanerModel: ObservableObject {
         // Avoid accessing a @MainActor static property from a Sendable closure.
         let catalogReuseSeconds = Self.catalogReuseSeconds
         scannedAppCount = 0
-        scanTargetCount = WCContainerSafety.eligibleTargets(
+        scanTargetCount = WCScanExclusions.eligibleTargets(
             previousApps, excludedPaths: excluded
         ).count
         status = "正在检查已发现 App 的缓存权限……"
@@ -245,7 +253,7 @@ final class WorseCleanerModel: ObservableObject {
                 )
                 : nil
             let currentApps = changes?.apps ?? previousApps
-            let targets = WCContainerSafety.eligibleTargets(
+            let targets = WCScanExclusions.eligibleTargets(
                 currentApps, excludedPaths: excluded
             )
             // quickRecheckApps may discover or remove an App since the
@@ -309,9 +317,13 @@ final class WorseCleanerModel: ObservableObject {
                     scanErrors[reason, default: 0] += 1
                 }
                 let now = ProcessInfo.processInfo.systemUptime
-                if now - lastProgressUpdate >= 0.15 || index + 1 == targets.count {
+                // Throttle only progress UI notifications; actual scanning is untouched.
+                if now - lastProgressUpdate >= 0.4 || index + 1 == targets.count {
                     lastProgressUpdate = now
-                    DispatchQueue.main.async { self.scannedAppCount = index + 1 }
+                    let progress = index + 1
+                    DispatchQueue.main.async {
+                        if self.scannedAppCount != progress { self.scannedAppCount = progress }
+                    }
                 }
             }
             let inspectionDuration = ProcessInfo.processInfo.systemUptime - inspectionStarted
@@ -403,7 +415,7 @@ final class WorseCleanerModel: ObservableObject {
 
     func cleanSelected(_ ids: Set<String>) {
         guard !busy, groupConfirmed, appGroupReady else { return }
-        let targets = WCContainerSafety.eligibleTargets(
+        let targets = WCScanExclusions.eligibleTargets(
             apps, excludedPaths: excludedPaths
         ).filter {
             ids.contains($0.id) && usage[$0.id] != nil

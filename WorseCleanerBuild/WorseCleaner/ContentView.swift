@@ -95,7 +95,7 @@ struct ContentView: View {
     // Scanning may update progress hundreds of times; neither progress nor a
     // text-field edit should cause multiple copies of the full list to sort.
     private func rebuildOrderedApps() {
-        orderedApps = WCContainerSafety.eligibleTargets(
+        orderedApps = WCScanExclusions.eligibleTargets(
             model.apps, excludedPaths: model.excludedPaths
         ).filter {
             !isInternalSystemService($0.bundleID)
