@@ -1,0 +1,55 @@
+name: Cleaner v89 safety-boundary unit tests
+
+on:
+  push:
+    branches: ['fix/v89-safe-staging-partial-cleanup']
+    paths:
+      - 'WorseCleanerBuild/**'
+      - '.github/workflows/v89-boundary-unit-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  boundary-tests:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
+          xcodebuild -version
+      - name: Install XcodeGen and generate project
+        run: |
+          brew install xcodegen
+          cd WorseCleanerBuild
+          xcodegen generate
+      - name: Verify no authorization or deletion-scope expansion
+        run: python3 WorseCleanerBuild/scripts/verify_source_guards.py
+      - name: Run all Cleaner logic unit tests including new boundary tests
+        run: |
+          set -euo pipefail
+          simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
+          test -n "$simulator_id"
+          xcodebuild test \
+            -project WorseCleanerBuild/WorseCleaner.xcodeproj \
+            -scheme WorseCleaner \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -derivedDataPath "$PWD/DerivedDataBoundaryTests" \
+            -resultBundlePath "$PWD/v89-boundary-tests.xcresult" \
+            -parallel-testing-enabled NO \
+            -only-testing:CleanerUnitTests \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+      - name: Upload result bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v89-boundary-test-results
+          path: v89-boundary-tests.xcresult
+          if-no-files-found: ignore
