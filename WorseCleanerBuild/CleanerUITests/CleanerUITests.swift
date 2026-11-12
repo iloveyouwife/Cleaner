@@ -220,8 +220,18 @@ final class CleanerUITests: XCTestCase {
         clear.tap()
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3),
                       "Clearing the query should keep the keyboard open.")
+        XCTAssertTrue(keyboard.isHittable,
+                      "Regression from real iPhone video: clear leaves search open, but keyboard disappears.")
+        XCTAssertTrue(search.isHittable)
+        XCTAssertTrue(app.buttons["关闭搜索"].isHittable)
         XCTAssertFalse(clear.exists)
-        capture("search-multiple-keystrokes-keyboard-stable")
+        // In the real recording, Chinese text was cleared while the right
+        // round × stayed visible; typing should continue without re-tapping.
+        search.typeText("Q")
+        XCTAssertTrue(keyboard.isHittable,
+                      "Typing after clear must not require restoring focus manually.")
+        XCTAssertTrue(app.buttons["清除搜索文字"].exists)
+        capture("search-clear-empty-then-retype-keyboard-stable")
     }
 
     func testRepeatedSearchTapsKeepKeyboardOpen() {

@@ -226,15 +226,15 @@ struct ContentView: View {
                 }
             )
             .onChange(of: searchFieldFocused) { _, focused in
-                // The v71 grouped-section header can be recycled by List
-                // during result snapshots. Recover only transient, accidental
-                // focus loss while typing; intentional outside-tap/scroll/
-                // cancel exits set searchPresented=false and must stay closed.
-                guard !focused, searchPresented, !searchText.isEmpty else { return }
+                // Recover a transient loss of first responder when SwiftUI
+                // recreates the v71 Section header. This must work for an
+                // EMPTY query too: clearing the input also rebuilds rows.
+                // Intentional exits close searchPresented first, so a tap
+                // outside, swipe, or the round close button does not refocus.
+                guard !focused, searchPresented else { return }
                 DispatchQueue.main.async {
-                    if searchPresented && !searchFieldFocused && !searchText.isEmpty {
-                        searchFieldFocused = true
-                    }
+                    guard searchPresented, !searchFieldFocused else { return }
+                    searchFieldFocused = true
                 }
             }
             .task(id: searchText) {
@@ -375,13 +375,30 @@ struct ContentView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.search)
+                    .onSubmit {
+                        // A keyboard Search press is an intentional exit.
+                        setSearchPresented(false)
+                    }
+                    .onAppear {
+                        // Header re-creation does not always emit a FocusState
+                        // false transition. Reattach focus to the new field
+                        // without altering the original v71 header geometry.
+                        guard searchPresented else { return }
+                        DispatchQueue.main.async {
+                            if searchPresented { searchFieldFocused = true }
+                        }
+                    }
                     .accessibilityLabel("搜索 App")
 
                 if !searchText.isEmpty {
                     Button {
-                        // Clear only the query; preserve focus and keyboard.
+                        // Clearing also changes the List's filtered sections.
+                        // Keep the active search session and restore focus
+                        // AFTER the header has reconciled, even if query="".
                         searchText = ""
-                        searchFieldFocused = true
+                        DispatchQueue.main.async {
+                            if searchPresented { searchFieldFocused = true }
+                        }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.body)
