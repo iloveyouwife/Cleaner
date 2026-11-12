@@ -79,6 +79,32 @@ final class CleanerUnitTests: XCTestCase {
         XCTAssertEqual(other.additionalFailureCount, 1)
     }
 
+    func testCleanupPostcheckFailureDoesNotInventFreedBytes() {
+        let before = LimitedCleanerUsage(
+            cacheBytes: 100, temporaryBytes: 40, removableItemCount: 2
+        )
+        XCTAssertThrowsError(try LimitedCleanerService.resultAfterVerification(
+            before: before, removed: 2, failures: 1,
+            verify: { throw LimitedCleanerError.inaccessible("tmp", EPERM) }
+        )) { error in
+            guard let partial = error as? LimitedCleanerError else {
+                return XCTFail("Expected a typed post-check failure")
+            }
+            XCTAssertEqual(partial.confirmedRemovedItems, 2)
+            XCTAssertEqual(partial.additionalFailureCount, 2)
+        }
+        let verified = try? LimitedCleanerService.resultAfterVerification(
+            before: before, removed: 2, failures: 0,
+            verify: {
+                LimitedCleanerUsage(
+                    cacheBytes: 20, temporaryBytes: 10, removableItemCount: 0
+                )
+            }
+        )
+        XCTAssertEqual(verified?.freedBytes, 110)
+        XCTAssertEqual(verified?.removedItemCount, 2)
+    }
+
     func testVarAliasesDoNotDuplicateOneContainer() {
         let existing = target(uuidA)
         let alias = target(uuidA, prefix: "/private/var")

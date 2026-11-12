@@ -109,21 +109,36 @@ enum LimitedCleanerService {
             }
         }
 
+        return try resultAfterVerification(
+            before: before,
+            removed: removal.removedItemCount,
+            failures: removal.failedItemCount
+        ) {
+            try scan(containerURL: containerURL, rootValidator: rootValidator)
+        }
+    }
+
+    // Pure completion seam: unit tests can force the exact case where
+    // unlink succeeded but the post-scan fails, without modifying actual
+    // filesystem permissions or deletion behavior.
+    static func resultAfterVerification(
+        before: LimitedCleanerUsage,
+        removed: Int,
+        failures: Int,
+        verify: () throws -> LimitedCleanerUsage
+    ) throws -> LimitedCleanerResult {
         let after: LimitedCleanerUsage
         do {
-            after = try scan(containerURL: containerURL, rootValidator: rootValidator)
+            after = try verify()
         } catch {
             throw LimitedCleanerError.postCleanupVerificationFailed(
-                removed: removal.removedItemCount,
-                failures: removal.failedItemCount,
+                removed: removed, failures: failures,
                 reason: error.localizedDescription
             )
         }
         return LimitedCleanerResult(
-            before: before,
-            after: after,
-            removedItemCount: removal.removedItemCount,
-            failedItemCount: removal.failedItemCount
+            before: before, after: after,
+            removedItemCount: removed, failedItemCount: failures
         )
     }
 

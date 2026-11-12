@@ -100,6 +100,10 @@ int64_t worse_query(NSString *target, NSString *group, bool alt_flags, bool crea
     query_set_class(query, 7); // We're only using class 7 here (appGroup), which goes to containermanagerd
     identifier = xpc_string_create(group.UTF8String);
     query_set_group_identifiers(query, identifier);
+#if !OS_OBJECT_USE_OBJC
+    // Match the bridge's XPC ownership rules on non-Objective-C runtimes.
+    xpc_release(identifier);
+#endif
     query_set_part(query, 3); // The query's part sets our base path, part 3 is Library/Caches
     if (alt_flags) {
         query_set_flags(query, 0x0000000800000000ULL); // Accessing App Group containers on iOS 26.x needs different flags, for whatever reason

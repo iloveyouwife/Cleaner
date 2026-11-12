@@ -103,20 +103,27 @@ NSString *WCFindLaunchServicesStoreQuick(void) {
         }
     }
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    fsid_t fsid = {0};
+    uint64_t probe = 0;
+    if (!WCProbeDataVolume(&fsid, &probe)) return nil;
+    // A negative cache is only valid for the same Data-volume identity.
+    BOOL sameVolume = [saved[@"fs0"] isKindOfClass:NSNumber.class] &&
+        [saved[@"fs1"] isKindOfClass:NSNumber.class] &&
+        [saved[@"fs0"] intValue] == fsid.val[0] &&
+        [saved[@"fs1"] intValue] == fsid.val[1];
     // Throttle only known misses, not an earlier successful lookup whose
     // database file has since been replaced.
     NSTimeInterval lastMiss = [saved[@"lsMissAt"] respondsToSelector:@selector(doubleValue)]
         ? [saved[@"lsMissAt"] doubleValue] : 0;
-    if (lastMiss > 0 && now >= lastMiss &&
+    if (sameVolume && lastMiss > 0 && now >= lastMiss &&
         now - lastMiss < kWCLSReverseRetry) return nil;
-    fsid_t fsid = {0};
-    uint64_t probe = 0;
-    if (!WCProbeDataVolume(&fsid, &probe)) return nil;
     uint64_t inode = 0;
     NSString *found = WCFindRecentLSStore(fsid, probe + kWCInodeMargin, &inode,
                                           UINT64_MAX, 20);
     if (indexPath) {
         NSMutableDictionary *updated = saved ? [saved mutableCopy] : [NSMutableDictionary new];
+        updated[@"fs0"] = @(fsid.val[0]);
+        updated[@"fs1"] = @(fsid.val[1]);
         if (found) {
             updated[@"lsStore"] = found;
             updated[@"lsInode"] = @(inode);
@@ -314,6 +321,11 @@ NSDictionary<NSString *, id> *WCDiscoverDataContainers(
         } mutableCopy];
         if (lsStore) index[@"lsStore"] = lsStore;
         if (lsInode) index[@"lsInode"] = @(lsInode);
+        // Carry a recent unsuccessful quick lookup across index rewrites.
+        // Without this, a full inode refresh erases its 24h backoff marker.
+        NSNumber *miss = [saved[@"lsMissAt"] isKindOfClass:NSNumber.class]
+            ? saved[@"lsMissAt"] : nil;
+        if (!lsStore && miss) index[@"lsMissAt"] = miss;
         [index writeToFile:indexPath atomically:YES];
     }
     return @{

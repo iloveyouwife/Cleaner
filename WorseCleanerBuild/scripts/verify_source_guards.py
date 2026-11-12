@@ -53,7 +53,8 @@ checks = {
         and "CleanerSelectionScope.toggle" in ui,
     "LS negative lookup is throttled independently":
         "now - lastMiss < kWCLSReverseRetry" in discovery_objc
-        and 'updated[@"lsMissAt"] = @(now);' in discovery_objc,
+        and 'updated[@"lsMissAt"] = @(now);' in discovery_objc
+        and 'if (!lsStore && miss) index[@"lsMissAt"] = miss;' in discovery_objc,
     "Container discovery aliases are deduplicated":
         "WCPathDiscovery.uniqueContainers(raw.compactMap" in model
         and "seen.insert(WCPathDiscovery.containerIdentity" in model,
