@@ -83,6 +83,16 @@ final class CleanerUITests: XCTestCase {
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.tap()
         search.typeText("QQ")
+        // The bulk-selection button already existed before typing.
+        // Wait for the debounced result refresh, otherwise the test might
+        // select the original full list instead of the filtered QQ result.
+        let removed = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "微信")
+        ).firstMatch
+        let filtered = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"), object: removed
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [filtered], timeout: 8), .completed)
         let selectAll = app.buttons["全选"]
         XCTAssertTrue(selectAll.waitForExistence(timeout: 5))
         selectAll.tap()
