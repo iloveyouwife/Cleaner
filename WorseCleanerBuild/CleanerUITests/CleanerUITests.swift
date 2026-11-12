@@ -211,8 +211,12 @@ final class CleanerUITests: XCTestCase {
         // changed the number of rows and flipped into an empty state.
         for character in ["Q", "Q", "Z"] {
             search.typeText(character)
+            // Query results change from populated (QQ) to empty (QQZ).
+            // The keyboard must remain visible/usable throughout and the
+            // same field must accept the next character without re-tapping.
             XCTAssertTrue(keyboard.waitForExistence(timeout: 3),
                           "Keyboard dismissed while user was still typing.")
+            XCTAssertTrue(keyboard.isHittable, "Keyboard must stay interactive as search results change.")
             XCTAssertTrue(search.isHittable)
         }
         let clear = app.buttons["清除搜索文字"]
@@ -231,7 +235,13 @@ final class CleanerUITests: XCTestCase {
         XCTAssertTrue(keyboard.isHittable,
                       "Typing after clear must not require restoring focus manually.")
         XCTAssertTrue(app.buttons["清除搜索文字"].exists)
-        capture("search-clear-empty-then-retype-keyboard-stable")
+        // Clear again so the full App list returns; it must not recycle the
+        // persistent keyboard responder or require a fresh search tap.
+        app.buttons["清除搜索文字"].tap()
+        XCTAssertTrue(keyboard.isHittable, "Restoring all results must not drop keyboard focus.")
+        search.typeText("Z")
+        XCTAssertTrue(keyboard.isHittable, "Keyboard must survive repeated filter/clear transitions.")
+        capture("search-results-changing-keyboard-stable")
     }
 
     func testRepeatedSearchTapsKeepKeyboardOpen() {

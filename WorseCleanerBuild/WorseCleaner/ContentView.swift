@@ -200,8 +200,27 @@ struct ContentView: View {
                     }
                 }
             .listStyle(.insetGrouped)
+            // Place the actual TextField OUTSIDE the List's recycled headers.
+            // The transparent header slot below keeps v71's exact layout.
+            // Its measured frame moves with the List when scrolled, while
+            // this stable overlay retains its first responder through filters.
+            .overlay(alignment: .topLeading) {
+                animatedSearchBar
+                    .frame(width: max(0, searchFieldFrame.width),
+                           height: searchBarHeight)
+                    .offset(x: searchFieldFrame.minX,
+                            y: searchFieldFrame.minY)
+                    .opacity(searchFieldFrame.width > 0 ? 1 : 0)
+                    .allowsHitTesting(searchFieldFrame.width > 0)
+            }
             .coordinateSpace(name: "CleanerSearchList")
-            .onPreferenceChange(CleanerSearchFrameKey.self) { searchFieldFrame = $0 }
+            .onPreferenceChange(CleanerSearchFrameKey.self) { frame in
+                // An empty/recycled header must not remove the overlay or
+                // its keyboard; retain the last valid position until redraw.
+                if frame.width > 0 && frame.height > 0 {
+                    searchFieldFrame = frame
+                }
+            }
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(
                 SpatialTapGesture().onEnded { value in
@@ -225,18 +244,6 @@ struct ContentView: View {
                     }
                 }
             )
-            .onChange(of: searchFieldFocused) { _, focused in
-                // Recover a transient loss of first responder when SwiftUI
-                // recreates the v71 Section header. This must work for an
-                // EMPTY query too: clearing the input also rebuilds rows.
-                // Intentional exits close searchPresented first, so a tap
-                // outside, swipe, or the round close button does not refocus.
-                guard !focused, searchPresented else { return }
-                DispatchQueue.main.async {
-                    guard searchPresented, !searchFieldFocused else { return }
-                    searchFieldFocused = true
-                }
-            }
             .task(id: searchText) {
                 // The keyboard remains responsive; filter once after a brief
                 // typing pause, instead of rebuilding every list on each key.
@@ -359,9 +366,9 @@ struct ContentView: View {
         }
     }
 
-    // Keep the search bar in the list scroll flow, but not in a mutable
-    // Section header. The entry row stays alive as filtered sections change.
-    // The trailing close button and the field's leading edge do not move.
+    // The search field lives in a stable List overlay. Its v71 visual slot
+    // is still in the first section header, tracked by a preference frame.
+    // Search-result row rebuilding can no longer recycle the first responder.
     private var animatedSearchBar: some View {
         HStack(spacing: searchPresented ? 8 : 0) {
             HStack(spacing: 8) {
@@ -379,26 +386,13 @@ struct ContentView: View {
                         // A keyboard Search press is an intentional exit.
                         setSearchPresented(false)
                     }
-                    .onAppear {
-                        // Header re-creation does not always emit a FocusState
-                        // false transition. Reattach focus to the new field
-                        // without altering the original v71 header geometry.
-                        guard searchPresented else { return }
-                        DispatchQueue.main.async {
-                            if searchPresented { searchFieldFocused = true }
-                        }
-                    }
                     .accessibilityLabel("搜索 App")
 
                 if !searchText.isEmpty {
                     Button {
-                        // Clearing also changes the List's filtered sections.
-                        // Keep the active search session and restore focus
-                        // AFTER the header has reconciled, even if query="".
+                        // Clear the query without touching FocusState. The
+                        // persistent TextField outside the List stays active.
                         searchText = ""
-                        DispatchQueue.main.async {
-                            if searchPresented { searchFieldFocused = true }
-                        }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.body)
@@ -450,14 +444,6 @@ struct ContentView: View {
         }
         .frame(height: searchBarHeight)
         .animation(searchAnimation, value: searchPresented)
-        .background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CleanerSearchFrameKey.self,
-                    value: proxy.frame(in: .named("CleanerSearchList"))
-                )
-            }
-        }
     }
 
     private var summarySection: some View {
@@ -528,7 +514,20 @@ struct ContentView: View {
             .padding(.vertical, 8)
         } header: {
             VStack(alignment: .leading, spacing: 10) {
-                animatedSearchBar
+                // Identical v71 layout footprint; only the input control is
+                // rendered in a stable overlay above the List, so filtering
+                // cannot detach/recreate the active keyboard responder.
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .frame(height: searchBarHeight)
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: CleanerSearchFrameKey.self,
+                                value: proxy.frame(in: .named("CleanerSearchList"))
+                            )
+                        }
+                    }
                     .padding(.horizontal, -16)
                     .offset(y: -10)
                 HStack(alignment: .center, spacing: 4) {
