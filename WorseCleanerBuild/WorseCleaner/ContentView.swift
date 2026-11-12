@@ -252,6 +252,14 @@ struct ContentView: View {
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .onScrollPhaseChange { _, phase in
+                    // End editing as soon as the user starts scrolling, not
+                    // after the drag ends. Otherwise the first swipe could be
+                    // ignored by the typing-time geometry guard.
+                    if phase.isScrolling && searchPresented {
+                        setSearchPresented(false)
+                    }
+                }
                 .simultaneousGesture(
                     SpatialTapGesture().onEnded { _ in
                         // All List taps are outside the persistent search bar.
