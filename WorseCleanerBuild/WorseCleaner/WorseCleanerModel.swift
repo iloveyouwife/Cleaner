@@ -12,6 +12,12 @@ final class WorseCleanerModel: ObservableObject {
     @Published var groupID = ""
     @Published var groupConfirmed = false
     @Published var scannedAppCount = 0
+    @Published private(set) var scanTargetCount = 0
+    /// Count actual cache-scan candidates, excluding manual exclusions and
+    /// Cleaner itself. Does not alter the discovery list or cache scope.
+    var eligibleContainerCount: Int {
+        WCContainerSafety.eligibleTargets(apps, excludedPaths: excludedPaths).count
+    }
     @Published var accessDiagnostics = "尚未进行容器访问诊断。"
     @Published private(set) var excludedPaths = Set(
         UserDefaults.standard.stringArray(forKey: "wc.excludedPaths") ?? []
@@ -72,6 +78,7 @@ final class WorseCleanerModel: ObservableObject {
             completedCacheScan = false
             usage.removeAll()
             scannedAppCount = 0
+            scanTargetCount = 0
             lastPreparedGroup = groupID
         }
         groupConfirmed = appGroupReady &&
@@ -224,6 +231,9 @@ final class WorseCleanerModel: ObservableObject {
         // Avoid accessing a @MainActor static property from a Sendable closure.
         let catalogReuseSeconds = Self.catalogReuseSeconds
         scannedAppCount = 0
+        scanTargetCount = WCContainerSafety.eligibleTargets(
+            previousApps, excludedPaths: excluded
+        ).count
         status = "正在检查已发现 App 的缓存权限……"
         queue.async {
             // This is a lightweight MCM lookup plus LS file metadata check,
@@ -235,7 +245,12 @@ final class WorseCleanerModel: ObservableObject {
                 )
                 : nil
             let currentApps = changes?.apps ?? previousApps
-            let targets = currentApps.filter { !excluded.contains($0.path) }
+            let targets = WCContainerSafety.eligibleTargets(
+                currentApps, excludedPaths: excluded
+            )
+            // quickRecheckApps may discover or remove an App since the
+            // initial count. Update the denominator before progress starts.
+            DispatchQueue.main.async { self.scanTargetCount = targets.count }
             let targetIDs = Set(targets.map(\.id))
             let uptime = ProcessInfo.processInfo.systemUptime
             let recentCatalog: WCAppCatalog?
@@ -388,8 +403,10 @@ final class WorseCleanerModel: ObservableObject {
 
     func cleanSelected(_ ids: Set<String>) {
         guard !busy, groupConfirmed, appGroupReady else { return }
-        let targets = apps.filter {
-            ids.contains($0.id) && !excludedPaths.contains($0.path) && usage[$0.id] != nil
+        let targets = WCContainerSafety.eligibleTargets(
+            apps, excludedPaths: excludedPaths
+        ).filter {
+            ids.contains($0.id) && usage[$0.id] != nil
         }
         guard !targets.isEmpty else { return }
         busy = true

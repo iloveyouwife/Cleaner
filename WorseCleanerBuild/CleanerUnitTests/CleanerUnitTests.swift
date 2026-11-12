@@ -105,6 +105,56 @@ final class CleanerUnitTests: XCTestCase {
         XCTAssertEqual(verified?.removedItemCount, 2)
     }
 
+    func testExcludedAppsAreNotCountedInScanProgress() {
+        let ownHome = target(uuidA).path
+        let own = target(uuidA, bundleID: "com.example.cleaner")
+        let other = target(uuidB, bundleID: "com.example.other")
+        let third = target("AA736BDB-944E-48F1-A708-229AED7BDA25", bundleID: "com.example.third")
+        let candidates = [own, other, third]
+        // Self target is always excluded; the third target is manually
+        // excluded, so only one of three discovered roots is scanned.
+        let eligible = WCContainerSafety.eligibleTargets(
+            candidates,
+            excludedPaths: ["/private" + third.path],
+            ownHomePath: ownHome,
+            ownBundleID: "com.example.cleaner"
+        )
+        XCTAssertEqual(eligible.map(\.id), [other.id])
+        XCTAssertEqual(eligible.count, 1)
+        // Without a self entry: 22 discovered, 1 excluded => 21/21.
+        let twentyTwo = Array(repeating: other, count: 22)
+        let noExcluded = WCContainerSafety.eligibleTargets(
+            twentyTwo, excludedPaths: [],
+            ownHomePath: ownHome, ownBundleID: "com.example.cleaner"
+        )
+        XCTAssertEqual(noExcluded.count, 22)
+        let singleExcluded = WCContainerSafety.eligibleTargets(
+            [other, third], excludedPaths: [third.path],
+            ownHomePath: ownHome, ownBundleID: "com.example.cleaner"
+        )
+        XCTAssertEqual(singleExcluded.map(\.id), [other.id])
+    }
+
+    func testSelfProtectionCoversUUIDAliasBundleIDAndManualEntry() {
+        let own = target(uuidA, bundleID: "com.example.cleaner")
+        let manualAlias = target(uuidA, prefix: "/private/var", bundleID: "manual")
+        let mismatchedPath = target(uuidB, bundleID: "com.example.cleaner")
+        let safe = target(uuidB, bundleID: "com.example.other")
+        let home = own.path
+        XCTAssertTrue(WCContainerSafety.isCleanerContainer(
+            own, ownHomePath: home, ownBundleID: "com.example.cleaner"
+        ))
+        XCTAssertTrue(WCContainerSafety.isCleanerContainer(
+            manualAlias, ownHomePath: home, ownBundleID: "com.example.cleaner"
+        ))
+        XCTAssertTrue(WCContainerSafety.isCleanerContainer(
+            mismatchedPath, ownHomePath: home, ownBundleID: "com.example.cleaner"
+        ))
+        XCTAssertFalse(WCContainerSafety.isCleanerContainer(
+            safe, ownHomePath: home, ownBundleID: "com.example.cleaner"
+        ))
+    }
+
     func testVarAliasesDoNotDuplicateOneContainer() {
         let existing = target(uuidA)
         let alias = target(uuidA, prefix: "/private/var")

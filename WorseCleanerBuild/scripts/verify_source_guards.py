@@ -62,6 +62,14 @@ checks = {
     "Verified grant flags are updated":
         "preferredAlternative = alternative" in grant
         and "if preferredAlternative == nil" not in grant,
+    "Self container excluded from scans and reject at deletion entrypoint":
+        "WCContainerSafety.eligibleTargets" in model
+        and "scanTargetCount = targets.count" in model
+        and "guard !WCContainerSafety.isCleanerContainer(target)" in engine
+        and "protectedCleanerContainer" in engine,
+    "Scan progress denominator excludes manual and self exclusions":
+        "model.scanTargetCount" in ui
+        and "model.eligibleContainerCount" in ui,
     "Unit test suite included in scheme":
         "CleanerUnitTests: [test]" in project and "- CleanerUnitTests" in project,
 }

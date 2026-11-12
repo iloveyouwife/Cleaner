@@ -95,9 +95,10 @@ struct ContentView: View {
     // Scanning may update progress hundreds of times; neither progress nor a
     // text-field edit should cause multiple copies of the full list to sort.
     private func rebuildOrderedApps() {
-        orderedApps = model.apps.filter {
-            !model.excludedPaths.contains($0.path) &&
-                !isInternalSystemService($0.bundleID)
+        orderedApps = WCContainerSafety.eligibleTargets(
+            model.apps, excludedPaths: model.excludedPaths
+        ).filter {
+            !isInternalSystemService($0.bundleID)
         }.sorted { lhs, rhs in
             let a = model.usage[lhs.id]?.totalBytes ?? -1
             let b = model.usage[rhs.id]?.totalBytes ?? -1
@@ -517,9 +518,9 @@ struct ContentView: View {
                             contentIcon("arrow.triangle.2.circlepath")
                         }
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(model.busy ? "扫描中 · \(model.scannedAppCount) / \(model.apps.count)" : "重新扫描缓存")
+                            Text(model.busy ? "扫描中 · \(model.scannedAppCount) / \(model.scanTargetCount)" : "重新扫描缓存")
                                 .font(.subheadline.weight(.semibold))
-                            Text("\(model.apps.count) 个数据容器 · 仅检查 Caches / tmp")
+                            Text("\(model.busy ? model.scanTargetCount : model.eligibleContainerCount) 个数据容器 · 仅检查 Caches / tmp")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
