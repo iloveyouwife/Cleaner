@@ -16,7 +16,10 @@ struct ContentView: View {
     @StateObject private var model = WorseCleanerModel()
     @State private var searchText = ""
     @State private var searchPresented = false
-    @State private var searchScrollOffset: CGFloat = 0
+    @State private var searchCollapse: CGFloat = 0
+    @State private var listNearTop = true
+    @State private var searchDragStartCollapse: CGFloat?
+    @State private var searchDragStartTranslation: CGFloat?
     @FocusState private var searchFieldFocused: Bool
     @State private var appliedSearchText = ""
     @State private var orderedApps: [WCTarget] = []
@@ -44,11 +47,50 @@ struct ContentView: View {
         reduceMotion ? nil : .easeInOut(duration: 0.28)
     }
 
-    // Follow the List's actual scroll displacement. The TextField remains
-    // a persistent sibling of List; only its clipped visual space changes.
-    // No drag-end visibility toggle, and no focus changes while filtering.
+    // The header follows finger displacement in small, clamped increments.
+    // Do not feed List.contentOffset straight back into this height: changing
+    // the sibling header changes List's geometry and can cause visible jumps.
+    // Its TextField remains mounted even when the header is fully clipped.
+    private var searchFullHeight: CGFloat { searchBarHeight + 28 }
     private var searchHeaderHeight: CGFloat {
-        max(0, searchBarHeight + 28 - max(0, searchScrollOffset))
+        max(0, searchFullHeight - searchCollapse)
+    }
+
+    private func trackSearchDrag(_ value: DragGesture.Value) {
+        let vertical = value.translation.height
+        guard abs(vertical) > abs(value.translation.width) else { return }
+        // While scrolled deep into the App list, don't reveal a detached
+        // search drawer. Allow the same downward gesture to reveal it only
+        // after the List reaches its top.
+        if vertical > 0 && !listNearTop && searchCollapse > 0 { return }
+
+        if searchDragStartTranslation == nil {
+            searchDragStartTranslation = vertical
+            searchDragStartCollapse = searchCollapse
+        }
+        let distance = vertical - (searchDragStartTranslation ?? vertical)
+        // Use a gentler response than a 1:1 fling. A fast swipe no longer
+        // jumps 70pt based on a single coarse contentOffset notification.
+        let target = (searchDragStartCollapse ?? searchCollapse) - distance * 0.7
+        let clamped = min(searchFullHeight, max(0, target))
+        if abs(searchCollapse - clamped) > 0.25 {
+            searchCollapse = clamped
+        }
+    }
+
+    private func finishSearchDrag(_ value: DragGesture.Value) {
+        searchDragStartCollapse = nil
+        searchDragStartTranslation = nil
+        let delta = value.translation
+        guard abs(delta.height) > 28, abs(delta.height) > abs(delta.width) else { return }
+        // Keep v71 behavior of ending an active keyboard session on swipes.
+        if searchPresented { setSearchPresented(false) }
+        // Only settle the remaining partial distance, with a short ease-out.
+        // Never switch visibility abruptly on gesture completion.
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+            searchCollapse = searchCollapse >= searchFullHeight * 0.5
+                ? searchFullHeight : 0
+        }
     }
 
     private func setSearchPresented(_ presented: Bool, clearQuery: Bool = false) {
@@ -219,15 +261,13 @@ struct ContentView: View {
                 // scrolling and the persistent search responder unchanged.
                 .scrollEdgeEffectStyle(.soft, for: .top)
                 .contentMargins(.top, 0, for: .scrollContent)
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    // Geometry-based scrolling is continuous and tracks the
-                    // native List's rubber-band/drag progression. Always
-                    // normalize by the top inset so the top position is zero.
-                    max(0, geometry.contentOffset.y + geometry.contentInsets.top)
-                } action: { _, offset in
-                    if abs(searchScrollOffset - offset) > 0.25 {
-                        searchScrollOffset = offset
-                    }
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    // Observe only whether the list has returned near top.
+                    // Unlike a raw CGFloat offset, a Bool avoids constantly
+                    // rebuilding the whole List while its header collapses.
+                    geometry.contentOffset.y + geometry.contentInsets.top < 10
+                } action: { _, atTop in
+                    listNearTop = atTop
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .simultaneousGesture(
@@ -238,15 +278,9 @@ struct ContentView: View {
                     }
                 )
                 .simultaneousGesture(
-                    DragGesture(minimumDistance: 20).onEnded { value in
-                        let delta = value.translation
-                        guard abs(delta.height) > 28,
-                              abs(delta.height) > abs(delta.width) else { return }
-                        // Dragging dismisses an active search session, as in
-                        // v71. Visibility itself follows List scroll geometry
-                        // continuously above, not a boolean at gesture end.
-                        if searchPresented { setSearchPresented(false) }
-                    }
+                    DragGesture(minimumDistance: 4)
+                        .onChanged { value in trackSearchDrag(value) }
+                        .onEnded { value in finishSearchDrag(value) }
                 )
                 .task(id: searchText) {
                 // The keyboard remains responsive; filter once after a brief

@@ -26,8 +26,8 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: WorseCleaner/WorseCleaner-Bridging-Header.h
         INFOPLIST_KEY_CFBundleDisplayName: Cleaner
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: 0.81.0
-        CURRENT_PROJECT_VERSION: 81
+        MARKETING_VERSION: 0.82.0
+        CURRENT_PROJECT_VERSION: 82
         INFOPLIST_KEY_CFBundleDevelopmentRegion: zh-Hans
         OTHER_LDFLAGS:
           - "$(inherited)"

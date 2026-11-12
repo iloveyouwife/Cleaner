@@ -134,11 +134,17 @@ final class CleanerUITests: XCTestCase {
         XCTAssertLessThan(abs(search.frame.width - inactiveFrame.width), 6)
         search.tap()
         app.swipeUp()
-        capture("search-progressive-hide-after-scroll")
+        capture("search-finger-tracked-collapse")
         app.swipeDown()
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         XCTAssertTrue(search.isHittable, "Pulling down must reveal search again.")
-        capture("search-progressive-reveal-after-scroll")
+        capture("search-finger-tracked-reveal")
+        // Verify another full cycle. A collapsed bar must always recover
+        // without switching search focus or leaving a missing header.
+        app.swipeUp()
+        app.swipeDown()
+        XCTAssertTrue(search.isHittable, "Second scroll cycle must restore search.")
+        capture("search-two-scroll-cycles-restored")
     }
 
     func testSearchDismissesOnBackgroundTap() {
