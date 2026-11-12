@@ -51,6 +51,34 @@ final class CleanerUnitTests: XCTestCase {
         )
     }
 
+    func testAllDiscoverySourcesDeduplicateVarAliases() {
+        let primary = target(uuidA)
+        let alias = target(uuidA, prefix: "/private/var")
+        let another = target(uuidB)
+        let result = WCPathDiscovery.uniqueContainers([primary, alias, another, alias])
+        XCTAssertEqual(result.map(\.id), [primary.id, another.id])
+    }
+
+    func testSearchBulkSelectionKeepsOutsideChoices() {
+        let hidden: Set<String> = ["hidden"]
+        let visible: Set<String> = ["one", "two"]
+        let selected = CleanerSelectionScope.toggle(selected: hidden, visible: visible)
+        XCTAssertEqual(selected, Set(["hidden", "one", "two"]))
+        XCTAssertEqual(CleanerSelectionScope.toggle(selected: selected, visible: visible), hidden)
+        XCTAssertEqual(CleanerSelectionScope.toggle(selected: hidden, visible: []), hidden)
+    }
+
+    func testPartialCleanupVerificationErrorNeverGuessesFreedBytes() {
+        let error = LimitedCleanerError.postCleanupVerificationFailed(
+            removed: 3, failures: 2, reason: "inaccessible")
+        XCTAssertEqual(error.confirmedRemovedItems, 3)
+        XCTAssertEqual(error.additionalFailureCount, 3)
+        XCTAssertTrue((error.errorDescription ?? "").contains("释放字节未计入"))
+        let other = LimitedCleanerError.inaccessible("tmp", EPERM)
+        XCTAssertEqual(other.confirmedRemovedItems, 0)
+        XCTAssertEqual(other.additionalFailureCount, 1)
+    }
+
     func testVarAliasesDoNotDuplicateOneContainer() {
         let existing = target(uuidA)
         let alias = target(uuidA, prefix: "/private/var")

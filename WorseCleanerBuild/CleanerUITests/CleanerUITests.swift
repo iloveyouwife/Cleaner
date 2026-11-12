@@ -70,6 +70,29 @@ final class CleanerUITests: XCTestCase {
         capture("bulk-select-cleared")
     }
 
+    func testSearchBulkUnselectPreservesHiddenAppSelection() {
+        let app = launchPreview()
+        let first = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "微信")
+        ).firstMatch
+        XCTAssertTrue(first.isHittable)
+        first.tap()
+        XCTAssertTrue(app.staticTexts["已选择 1 项"].waitForExistence(timeout: 5))
+
+        let search = searchInput(in: app)
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("QQ")
+        let selectAll = app.buttons["全选"]
+        XCTAssertTrue(selectAll.waitForExistence(timeout: 5))
+        selectAll.tap()
+        XCTAssertTrue(app.staticTexts["已选择 2 项"].waitForExistence(timeout: 5))
+        app.buttons["取消全选"].tap()
+        XCTAssertTrue(app.staticTexts["已选择 1 项"].waitForExistence(timeout: 5),
+                      "Canceling filtered selection must preserve the hidden selection.")
+        capture("search-bulk-deselect-preserves-hidden")
+    }
+
     func testSortMenu() {
         let app = launchPreview()
         openMenu("排序", in: app)

@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -269,7 +273,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Cleaner-layout-preview-v52
+          name: Cleaner-layout-preview
           path: |
             ui-screenshots/*.png
             ui-menu-screenshots/**

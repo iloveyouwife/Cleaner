@@ -9,6 +9,10 @@ service = (src / "LimitedCleanerService.swift").read_text()
 engine = (src / "CleanerEngine.swift").read_text()
 discovery = (src / "WCPathDiscovery.swift").read_text()
 model = (src / "WorseCleanerModel.swift").read_text()
+grant = (src / "WCGrant.swift").read_text()
+query = (src / "worse_query.m").read_text()
+ui = (src / "ContentView.swift").read_text()
+discovery_objc = (src / "WCContainerDiscovery.m").read_text()
 project = (root / "project.yml").read_text()
 
 checks = {
@@ -36,6 +40,26 @@ checks = {
     "Unknown LS stamps invalidate name reuse":
         "stampIsCurrent(scanStartLSStamp, scannedLSStamp)" in model
         and "catalogReuseSeconds: TimeInterval = 180" in model,
+    "Query failure releases resources and restores private staging directory":
+        "if (![files createSymbolicLinkAtPath:caches" in query
+        and "query_free(query);" in query
+        and "if (cacheExists && ![files removeItemAtPath:caches" in query
+        and "clean_symlink(group);" in query,
+    "Post-cleanup checks never infer bytes freed":
+        "postCleanupVerificationFailed" in service
+        and "partial.confirmedRemovedItems" in model,
+    "Search bulk selection leaves hidden choices untouched":
+        "selected.subtracting(visible)" in ui
+        and "CleanerSelectionScope.toggle" in ui,
+    "LS negative lookup is throttled independently":
+        "now - lastMiss < kWCLSReverseRetry" in discovery_objc
+        and 'updated[@"lsMissAt"] = @(now);' in discovery_objc,
+    "Container discovery aliases are deduplicated":
+        "WCPathDiscovery.uniqueContainers(raw.compactMap" in model
+        and "seen.insert(WCPathDiscovery.containerIdentity" in model,
+    "Verified grant flags are updated":
+        "preferredAlternative = alternative" in grant
+        and "if preferredAlternative == nil" not in grant,
     "Unit test suite included in scheme":
         "CleanerUnitTests: [test]" in project and "- CleanerUnitTests" in project,
 }
