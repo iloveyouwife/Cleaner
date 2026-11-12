@@ -170,6 +170,15 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             List {
+                    // Keep the active TextField in a stable List row, rather
+                    // than a Section header that List can recreate as search
+                    // results move between empty and populated sections.
+                    animatedSearchBar
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16,
+                                                  bottom: 0, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+
                     summarySection
                     if !model.appGroupReady || !model.groupConfirmed {
                         signingWarning
@@ -347,10 +356,9 @@ struct ContentView: View {
         }
     }
 
-    // A single horizontal animation controls both the search field's trailing
-    // edge and the cancel button. The field's leading edge and height stay put.
-    // Keeping this in the first section header preserves the old drawer-like
-    // behavior: scroll up to hide it and pull down to reveal it again.
+    // Keep the search bar in the list scroll flow, but not in a mutable
+    // Section header. The entry row stays alive as filtered sections change.
+    // The trailing close button and the field's leading edge do not move.
     private var animatedSearchBar: some View {
         HStack(spacing: searchPresented ? 8 : 0) {
             HStack(spacing: 8) {
@@ -365,6 +373,22 @@ struct ContentView: View {
                     .autocorrectionDisabled()
                     .submitLabel(.search)
                     .accessibilityLabel("搜索 App")
+
+                if !searchText.isEmpty {
+                    Button {
+                        // Clear only the query; preserve focus and keyboard.
+                        searchText = ""
+                        searchFieldFocused = true
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.body)
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 25, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("清除搜索文字")
+                }
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
@@ -483,21 +507,16 @@ struct ContentView: View {
             }
             .padding(.vertical, 8)
         } header: {
-            VStack(alignment: .leading, spacing: 10) {
-                animatedSearchBar
-                    .padding(.horizontal, -16)
-                    .offset(y: -10)
-                HStack(alignment: .center, spacing: 4) {
-                    Image(systemName: "checkmark.shield")
-                        .font(.footnote.weight(.semibold))
-                        .frame(width: shieldSize, height: shieldSize, alignment: .center)
-                        .accessibilityHidden(true)
-                    Text("有限清理模式")
-                        .font(.footnote.weight(.semibold))
-                }
-                .foregroundColor(Color(uiColor: .secondaryLabel))
-                .textCase(nil)
+            HStack(alignment: .center, spacing: 4) {
+                Image(systemName: "checkmark.shield")
+                    .font(.footnote.weight(.semibold))
+                    .frame(width: shieldSize, height: shieldSize, alignment: .center)
+                    .accessibilityHidden(true)
+                Text("有限清理模式")
+                    .font(.footnote.weight(.semibold))
             }
+            .foregroundColor(Color(uiColor: .secondaryLabel))
+            .textCase(nil)
         } footer: {
             Text("仅清理所选项目的 Caches/tmp，保留 Documents 和容器本身。")
         }

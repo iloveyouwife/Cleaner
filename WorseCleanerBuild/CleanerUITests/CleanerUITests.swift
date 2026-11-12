@@ -174,6 +174,31 @@ final class CleanerUITests: XCTestCase {
                           "Tapping outside search must restore the inactive width.")
     }
 
+    func testContinuousSearchTypingPreservesKeyboardAndClearButton() {
+        let app = launchPreview()
+        let search = searchInput(in: app)
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+
+        // The old Section-header field could lose focus when filtering
+        // changed the number of rows and flipped into an empty state.
+        for character in ["Q", "Q", "Z"] {
+            search.typeText(character)
+            XCTAssertTrue(keyboard.waitForExistence(timeout: 3),
+                          "Keyboard dismissed while user was still typing.")
+            XCTAssertTrue(search.isHittable)
+        }
+        let clear = app.buttons["清除搜索文字"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 5))
+        clear.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3),
+                      "Clearing the query should keep the keyboard open.")
+        XCTAssertFalse(clear.exists)
+        capture("search-multiple-keystrokes-keyboard-stable")
+    }
+
     func testRepeatedSearchTapsKeepKeyboardOpen() {
         let app = launchPreview()
         let search = searchInput(in: app)
