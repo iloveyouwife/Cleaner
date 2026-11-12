@@ -410,7 +410,13 @@ struct ContentView: View {
                 // Simulator-only layout QA. Keep the production discovery path
                 // untouched and avoid privileged scans during UI screenshots.
                 let arguments = ProcessInfo.processInfo.arguments
-                if arguments.contains("-captureLongRows") {
+                if arguments.contains("-captureUnconfirmedGroup") {
+                    // Simulator-only reproduction of an unconfirmed App Group.
+                    // No privileged scans or filesystem operations are performed.
+                    CleanerScreenshotFixtures.install(into: model)
+                    model.appGroupReady = false
+                    model.groupConfirmed = false
+                } else if arguments.contains("-captureLongRows") {
                     CleanerScreenshotFixtures.install(into: model, longNamesOnly: true)
                 } else if arguments.contains(where: { $0.hasPrefix("-capturePopulated") }) {
                     CleanerScreenshotFixtures.install(into: model)

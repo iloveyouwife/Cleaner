@@ -1,0 +1,49 @@
+name: Reproduce Cleaner unconfirmed App Group settings tap
+
+on:
+  push:
+    branches: ['fix/v90-advanced-settings']
+    paths:
+      - 'WorseCleanerBuild/**'
+      - '.github/workflows/v90-settings-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27 and generate project
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
+          brew install xcodegen
+          cd WorseCleanerBuild
+          xcodegen generate
+      - name: Run unconfirmed App Group warning UI regression
+        run: |
+          set -euo pipefail
+          sim="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
+          test -n "$sim"
+          xcodebuild test \
+            -project WorseCleanerBuild/WorseCleaner.xcodeproj \
+            -scheme WorseCleaner \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$sim" \
+            -derivedDataPath "$PWD/DerivedDataV90TapTests" \
+            -resultBundlePath "$PWD/v90-settings-ui.xcresult" \
+            -parallel-testing-enabled NO \
+            -only-testing:CleanerUITests/CleanerUITests/testUnconfirmedAppGroupWarningOpensSettings \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v90-settings-ui-results
+          path: v90-settings-ui.xcresult
+          if-no-files-found: ignore

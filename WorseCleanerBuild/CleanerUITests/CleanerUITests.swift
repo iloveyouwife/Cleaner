@@ -262,6 +262,29 @@ final class CleanerUITests: XCTestCase {
         capture("search-repeated-taps-without-keyboard-bounce")
     }
 
+    func testUnconfirmedAppGroupWarningOpensSettings() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-captureUnconfirmedGroup"]
+        app.launch()
+
+        let warning = app.staticTexts["请确认 App Group"]
+        XCTAssertTrue(warning.waitForExistence(timeout: 15),
+                      "The unconfirmed App Group warning must be shown.")
+        let open = app.buttons["打开高级设置"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10),
+                      "Warning must expose an actionable settings button.")
+        XCTAssertTrue(open.isHittable, "The warning action must be tappable.")
+        capture("unconfirmed-warning-before-tap")
+        open.tap()
+        XCTAssertTrue(app.navigationBars["高级设置"].waitForExistence(timeout: 10),
+                      "Tapping the warning action must present advanced settings.")
+        XCTAssertTrue(app.buttons["完成"].exists)
+        capture("unconfirmed-warning-settings-open")
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["打开高级设置"].waitForExistence(timeout: 5),
+                      "Closing settings should restore the warning action.")
+    }
+
     func testAdvancedSettingsRowsAndDiagnostics() {
         let app = XCUIApplication()
         app.launchArguments = ["-captureAdvancedSettings"]
