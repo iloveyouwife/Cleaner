@@ -4,6 +4,7 @@
 #import <sys/stat.h>
 #import <fcntl.h>
 #import <unistd.h>
+#import <dirent.h>
 #import <errno.h>
 
 /// iOS 15.4-compatible UIKit and Objective-C only.
