@@ -188,10 +188,10 @@ final class CleanerUITests: XCTestCase {
         let topGap = search.frame.minY - navigation.frame.maxY
         let bottomGap = heading.frame.minY - search.frame.maxY
         XCTAssertGreaterThanOrEqual(topGap, -4, "Search overlaps navigation.")
-        XCTAssertLessThan(topGap, 28, "Top List content margin is still pushing search too far below navigation.")
+        XCTAssertLessThan(topGap, 40, "Search no longer matches the v71 header placement.")
         XCTAssertGreaterThanOrEqual(bottomGap, 4, "Search overlaps heading.")
         XCTAssertLessThan(bottomGap, 30, "Excess space below search.")
-        capture("search-v71-compact-spacing")
+        capture("search-exact-v71-header-layout")
 
         search.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))

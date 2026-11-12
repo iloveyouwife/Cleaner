@@ -170,22 +170,6 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             List {
-                    // A separate, stable section keeps the TextField alive
-                    // as filtered App rows change. Section-specific margins
-                    // restore v71-like vertical spacing without changing
-                    // any subsequent summary/App section spacing.
-                    Section {
-                        animatedSearchBar
-                            .listRowInsets(EdgeInsets(top: 0, leading: 16,
-                                                      bottom: 0, trailing: 16))
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                    } header: {
-                        Color.clear.frame(height: 0)
-                    }
-                    .listSectionMargins(.vertical, 0)
-                    .listSectionSpacing(8)
-
                     summarySection
                     if !model.appGroupReady || !model.groupConfirmed {
                         signingWarning
@@ -216,12 +200,6 @@ struct ContentView: View {
                     }
                 }
             .listStyle(.insetGrouped)
-            // v72/73 moved the search from the first section header to a
-            // stable row. Inset-grouped List still inserts a top content
-            // margin before that row; removing just this scroll-content
-            // margin restores the drawer's compact vertical placement.
-            // Keep the row/Section stable to preserve keyboard focus.
-            .contentMargins(.top, 0, for: .scrollContent)
             .coordinateSpace(name: "CleanerSearchList")
             .onPreferenceChange(CleanerSearchFrameKey.self) { searchFieldFrame = $0 }
             .scrollDismissesKeyboard(.interactively)
@@ -247,6 +225,18 @@ struct ContentView: View {
                     }
                 }
             )
+            .onChange(of: searchFieldFocused) { _, focused in
+                // The v71 grouped-section header can be recycled by List
+                // during result snapshots. Recover only transient, accidental
+                // focus loss while typing; intentional outside-tap/scroll/
+                // cancel exits set searchPresented=false and must stay closed.
+                guard !focused, searchPresented, !searchText.isEmpty else { return }
+                DispatchQueue.main.async {
+                    if searchPresented && !searchFieldFocused && !searchText.isEmpty {
+                        searchFieldFocused = true
+                    }
+                }
+            }
             .task(id: searchText) {
                 // The keyboard remains responsive; filter once after a brief
                 // typing pause, instead of rebuilding every list on each key.
@@ -520,16 +510,21 @@ struct ContentView: View {
             }
             .padding(.vertical, 8)
         } header: {
-            HStack(alignment: .center, spacing: 4) {
-                Image(systemName: "checkmark.shield")
-                    .font(.footnote.weight(.semibold))
-                    .frame(width: shieldSize, height: shieldSize, alignment: .center)
-                    .accessibilityHidden(true)
-                Text("有限清理模式")
-                    .font(.footnote.weight(.semibold))
+            VStack(alignment: .leading, spacing: 10) {
+                animatedSearchBar
+                    .padding(.horizontal, -16)
+                    .offset(y: -10)
+                HStack(alignment: .center, spacing: 4) {
+                    Image(systemName: "checkmark.shield")
+                        .font(.footnote.weight(.semibold))
+                        .frame(width: shieldSize, height: shieldSize, alignment: .center)
+                        .accessibilityHidden(true)
+                    Text("有限清理模式")
+                        .font(.footnote.weight(.semibold))
+                }
+                .foregroundColor(Color(uiColor: .secondaryLabel))
+                .textCase(nil)
             }
-            .foregroundColor(Color(uiColor: .secondaryLabel))
-            .textCase(nil)
         } footer: {
             Text("仅清理所选项目的 Caches/tmp，保留 Documents 和容器本身。")
         }
