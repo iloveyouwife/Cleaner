@@ -278,7 +278,10 @@ struct ContentView: View {
                         // All List taps are outside the persistent search bar.
                         // Dismiss editing without clearing the current filter.
                         if searchPresented { setSearchPresented(false) }
-                    }
+                    },
+                    // When search is inactive, do not install a competing
+                    // tap recognizer over the List's native buttons.
+                    including: searchPresented ? .all : .none
                 )
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 20).onEnded { value in
@@ -288,7 +291,8 @@ struct ContentView: View {
                         guard abs(delta.height) > 28,
                               abs(delta.height) > abs(delta.width) else { return }
                         if searchPresented { setSearchPresented(false) }
-                    }
+                    },
+                    including: searchPresented ? .all : .none
                 )
                 .task(id: searchText) {
                     // Keep the stable field alive while only the List's data
@@ -754,6 +758,10 @@ struct ContentView: View {
                                  subtitle: "未确认前无法扫描或清理缓存。",
                                  tint: .orange)
             Button("打开高级设置") { showingAdvancedSettings = true }
+                // List's automatic row button style can compete with the
+                // surrounding tap-to-dismiss recognizer on iOS 27.
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("open-advanced-settings-warning")
         }
     }
 
