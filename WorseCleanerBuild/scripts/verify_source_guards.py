@@ -73,6 +73,16 @@ checks = {
         and "model.eligibleContainerCount" not in ui,
     "Progress denominator matches manual exclusion filtering":
         "scanTargetCount = targets.count" in model,
+    "Exclusion persistence and management normalize all path aliases":
+        "WCScanExclusions.normalizedPaths" in model
+        and "WCScanExclusions.excludedTargets" in (src / "CleanerExcludedAppsView.swift").read_text(),
+    "Uninstalled and excluded selections cannot stay selected":
+        "CleanerSelectionScope.retainingEligible" in ui
+        and "selected: selectedIDs, apps: model.apps, excludedPaths: excluded" in ui,
+    "Available cache bytes are cached only after list changes":
+        "@State private var availableSize: Int64 = 0" in ui
+        and "CleanerCacheSummary.availableBytes(" in ui
+        and "model.apps.reduce" not in ui,
     "Unit test suite included in scheme":
         "CleanerUnitTests: [test]" in project and "- CleanerUnitTests" in project,
 }

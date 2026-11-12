@@ -8,7 +8,9 @@ struct CleanerExcludedAppsView: View {
     var body: some View {
         NavigationStack {
             List {
-                let excluded = model.apps.filter { model.excludedPaths.contains($0.path) }
+                let excluded = WCScanExclusions.excludedTargets(
+                    model.apps, excludedPaths: model.excludedPaths
+                )
                 if excluded.isEmpty {
                     Section {
                         CleanerEmptyState(

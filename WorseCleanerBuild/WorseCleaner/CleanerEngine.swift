@@ -21,11 +21,27 @@ struct WCTarget: Identifiable, Hashable {
 /// Skip only manually excluded App containers. /var and /private/var
 /// refer to the same identity, including entries added by UUID.
 enum WCScanExclusions {
-    static func eligibleTargets(_ candidates: [WCTarget], excludedPaths: Set<String>) -> [WCTarget] {
-        let excluded = Set(excludedPaths.map(WCPathDiscovery.containerIdentity))
+    /// Treat /var and /private/var as the same container in every UI and
+    /// backend exclusion operation. Never excludes Cleaner automatically.
+    static func normalizedPaths(_ paths: Set<String>) -> Set<String> {
+        Set(paths.map(WCPathDiscovery.containerIdentity))
+    }
+
+    private static func filter(
+        _ candidates: [WCTarget], excludedPaths: Set<String>, includeExcluded: Bool
+    ) -> [WCTarget] {
+        let excluded = normalizedPaths(excludedPaths)
         return candidates.filter {
-            !excluded.contains(WCPathDiscovery.containerIdentity($0.path))
+            excluded.contains(WCPathDiscovery.containerIdentity($0.path)) == includeExcluded
         }
+    }
+
+    static func eligibleTargets(_ candidates: [WCTarget], excludedPaths: Set<String>) -> [WCTarget] {
+        filter(candidates, excludedPaths: excludedPaths, includeExcluded: false)
+    }
+
+    static func excludedTargets(_ candidates: [WCTarget], excludedPaths: Set<String>) -> [WCTarget] {
+        filter(candidates, excludedPaths: excludedPaths, includeExcluded: true)
     }
 }
 

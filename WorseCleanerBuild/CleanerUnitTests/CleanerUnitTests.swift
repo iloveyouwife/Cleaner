@@ -133,6 +133,62 @@ final class CleanerUnitTests: XCTestCase {
         XCTAssertEqual(filtered.map(\.id), [other.id])
     }
 
+    func testExcludingAppPrunesSelectedIDsButPreservesSearchHiddenSelections() {
+        let one = target(uuidA, bundleID: "com.example.one")
+        let two = target(uuidB, bundleID: "com.example.two")
+        let hidden = target("AA736BDB-944E-48F1-A708-229AED7BDA25", bundleID: "com.example.hidden")
+        let chosen: Set<String> = [one.id, two.id, hidden.id]
+        let stillChosen = CleanerSelectionScope.retainingEligible(
+            selected: chosen, apps: [one, two, hidden],
+            excludedPaths: ["/private" + one.path]
+        )
+        XCTAssertEqual(stillChosen, Set([two.id, hidden.id]))
+        // An App removal must also prune selection without clearing all others.
+        let afterUninstall = CleanerSelectionScope.retainingEligible(
+            selected: stillChosen, apps: [two], excludedPaths: []
+        )
+        XCTAssertEqual(afterUninstall, Set([two.id]))
+    }
+
+    func testExcludedAliasesAgreeInScanListAndManagementList() {
+        let app = target(uuidA, bundleID: "com.example.app")
+        let other = target(uuidB, bundleID: "com.example.other")
+        let excluded = WCScanExclusions.normalizedPaths(["/private" + app.path])
+        XCTAssertEqual(excluded, Set([WCPathDiscovery.containerIdentity(app.path)]))
+        XCTAssertEqual(
+            WCScanExclusions.eligibleTargets([app, other], excludedPaths: excluded).map(\.id),
+            [other.id]
+        )
+        XCTAssertEqual(
+            WCScanExclusions.excludedTargets([app, other], excludedPaths: excluded).map(\.id),
+            [app.id]
+        )
+        XCTAssertTrue(
+            WCScanExclusions.normalizedPaths([app.path]).isSubset(of: excluded)
+        )
+    }
+
+    func testCacheSummariesUseVisibleAndSelectedTargetsOnly() {
+        let one = target(uuidA, bundleID: "com.example.one")
+        let two = target(uuidB, bundleID: "com.example.two")
+        let usage: [String: LimitedCleanerUsage] = [
+            one.id: LimitedCleanerUsage(cacheBytes: 100, temporaryBytes: 10, removableItemCount: 1),
+            two.id: LimitedCleanerUsage(cacheBytes: 200, temporaryBytes: 20, removableItemCount: 1)
+        ]
+        XCTAssertEqual(
+            CleanerCacheSummary.availableBytes(visibleApps: [two], usage: usage), 220
+        )
+        XCTAssertEqual(
+            CleanerCacheSummary.selectedBytes(ids: [one.id], usage: usage), 110
+        )
+        XCTAssertEqual(
+            CleanerCacheSummary.selectedBytes(ids: [one.id, "uninstalled"], usage: usage), 110
+        )
+        XCTAssertEqual(
+            CleanerCacheSummary.availableBytes(visibleApps: [], usage: usage), 0
+        )
+    }
+
     func testVarAliasesDoNotDuplicateOneContainer() {
         let existing = target(uuidA)
         let alias = target(uuidA, prefix: "/private/var")

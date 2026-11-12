@@ -18,8 +18,8 @@ final class WorseCleanerModel: ObservableObject {
     /// after the pre-scan recheck. Never recalculated in SwiftUI's body.
     @Published private(set) var scanTargetCount = 0
     @Published var accessDiagnostics = "尚未进行容器访问诊断。"
-    @Published private(set) var excludedPaths = Set(
-        UserDefaults.standard.stringArray(forKey: "wc.excludedPaths") ?? []
+    @Published private(set) var excludedPaths = WCScanExclusions.normalizedPaths(
+        Set(UserDefaults.standard.stringArray(forKey: "wc.excludedPaths") ?? [])
     )
 
     private let queue = DispatchQueue(label: "org.worsecleaner.serial", qos: .userInitiated)
@@ -61,13 +61,13 @@ final class WorseCleanerModel: ObservableObject {
     }
 
     func exclude(_ paths: Set<String>) {
-        excludedPaths.formUnion(paths)
+        excludedPaths.formUnion(WCScanExclusions.normalizedPaths(paths))
         UserDefaults.standard.set(Array(excludedPaths), forKey: "wc.excludedPaths")
         refreshScanTargetCount()
     }
 
     func restoreExcluded(_ paths: Set<String>) {
-        excludedPaths.subtract(paths)
+        excludedPaths.subtract(WCScanExclusions.normalizedPaths(paths))
         UserDefaults.standard.set(Array(excludedPaths), forKey: "wc.excludedPaths")
         refreshScanTargetCount()
     }

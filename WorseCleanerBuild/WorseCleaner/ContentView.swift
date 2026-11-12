@@ -17,6 +17,27 @@ enum CleanerSelectionScope {
         if visible.isSubset(of: selected) { return selected.subtracting(visible) }
         return selected.union(visible)
     }
+
+    /// Remove selections whose App was uninstalled or manually excluded.
+    /// Search-hidden selections are intentionally retained.
+    static func retainingEligible(
+        selected: Set<String>, apps: [WCTarget], excludedPaths: Set<String>
+    ) -> Set<String> {
+        let ids = Set(WCScanExclusions.eligibleTargets(apps, excludedPaths: excludedPaths).map(\.id))
+        return selected.intersection(ids)
+    }
+}
+
+/// Pure cache byte summaries for the already-filtered visible app list.
+/// These are never recomputed from every container on each scroll frame.
+enum CleanerCacheSummary {
+    static func availableBytes(visibleApps: [WCTarget], usage: [String: LimitedCleanerUsage]) -> Int64 {
+        visibleApps.reduce(0) { $0 + (usage[$1.id]?.totalBytes ?? 0) }
+    }
+
+    static func selectedBytes(ids: Set<String>, usage: [String: LimitedCleanerUsage]) -> Int64 {
+        ids.reduce(0) { $0 + (usage[$1]?.totalBytes ?? 0) }
+    }
 }
 
 // 3105 CleanerView's layout: search, summary, sortable/selectable app rows,
@@ -38,6 +59,7 @@ struct ContentView: View {
     @FocusState private var searchFieldFocused: Bool
     @State private var appliedSearchText = ""
     @State private var orderedApps: [WCTarget] = []
+    @State private var availableSize: Int64 = 0
     @State private var searchSections = SearchSections()
     @State private var largestFirst = true
     @State private var selectedIDs = Set<String>()
@@ -105,6 +127,11 @@ struct ContentView: View {
             if a != b { return largestFirst ? a > b : a < b }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
+        // Calculate the summary once when the list or scan results change,
+        // not for each high-frequency scroll/progress body evaluation.
+        availableSize = CleanerCacheSummary.availableBytes(
+            visibleApps: orderedApps, usage: model.usage
+        )
         rebuildSearchResults()
     }
 
@@ -170,17 +197,7 @@ struct ContentView: View {
     }
 
     private var selectedSize: Int64 {
-        model.apps.reduce(0) { result, app in
-            result + (selectedIDs.contains(app.id) ? model.usage[app.id]?.totalBytes ?? 0 : 0)
-        }
-    }
-
-    private var availableSize: Int64 {
-        model.apps.reduce(0) { sum, app in
-            let visible = !isInternalSystemService(app.bundleID)
-            return sum + ((!visible || model.excludedPaths.contains(app.path))
-                ? 0 : model.usage[app.id]?.totalBytes ?? 0)
-        }
+        CleanerCacheSummary.selectedBytes(ids: selectedIDs, usage: model.usage)
     }
 
     var body: some View {
@@ -365,10 +382,17 @@ struct ContentView: View {
                 model.refreshSigning()
             }
             .onChange(of: model.apps) { _, currentApps in
-                selectedIDs.formIntersection(Set(currentApps.map(\.id)))
+                selectedIDs = CleanerSelectionScope.retainingEligible(
+                    selected: selectedIDs, apps: currentApps, excludedPaths: model.excludedPaths
+                )
                 rebuildOrderedApps()
             }
-            .onChange(of: model.excludedPaths) { _, _ in rebuildOrderedApps() }
+            .onChange(of: model.excludedPaths) { _, excluded in
+                selectedIDs = CleanerSelectionScope.retainingEligible(
+                    selected: selectedIDs, apps: model.apps, excludedPaths: excluded
+                )
+                rebuildOrderedApps()
+            }
             .onChange(of: largestFirst) { _, _ in rebuildOrderedApps() }
             .onChange(of: model.busy) { _, busy in
                 if !busy {
