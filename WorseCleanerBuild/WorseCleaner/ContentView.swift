@@ -170,14 +170,21 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             List {
-                    // Keep the active TextField in a stable List row, rather
-                    // than a Section header that List can recreate as search
-                    // results move between empty and populated sections.
-                    animatedSearchBar
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16,
-                                                  bottom: 0, trailing: 16))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                    // A separate, stable section keeps the TextField alive
+                    // as filtered App rows change. Section-specific margins
+                    // restore v71-like vertical spacing without changing
+                    // any subsequent summary/App section spacing.
+                    Section {
+                        animatedSearchBar
+                            .listRowInsets(EdgeInsets(top: 0, leading: 16,
+                                                      bottom: 0, trailing: 16))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    } header: {
+                        Color.clear.frame(height: 0)
+                    }
+                    .listSectionMargins(.vertical, 0)
+                    .listSectionSpacing(8)
 
                     summarySection
                     if !model.appGroupReady || !model.groupConfirmed {

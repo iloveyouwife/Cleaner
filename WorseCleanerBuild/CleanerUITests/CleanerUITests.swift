@@ -174,6 +174,31 @@ final class CleanerUITests: XCTestCase {
                           "Tapping outside search must restore the inactive width.")
     }
 
+    func testSearchVerticalSpacingMatchesCompactDrawerLayout() {
+        let app = launchPreview()
+        let search = searchInput(in: app)
+        let heading = app.staticTexts["有限清理模式"]
+        let navigation = app.navigationBars.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        XCTAssertTrue(heading.waitForExistence(timeout: 10))
+        XCTAssertTrue(navigation.waitForExistence(timeout: 10))
+
+        // Catch v72's excessive gaps above and below the search input.
+        // Leave a little slack for system font and rendering differences.
+        let topGap = search.frame.minY - navigation.frame.maxY
+        let bottomGap = heading.frame.minY - search.frame.maxY
+        XCTAssertGreaterThanOrEqual(topGap, -4, "Search overlaps navigation.")
+        XCTAssertLessThan(topGap, 40, "Excess space above search.")
+        XCTAssertGreaterThanOrEqual(bottomGap, 4, "Search overlaps heading.")
+        XCTAssertLessThan(bottomGap, 30, "Excess space below search.")
+        capture("search-v71-compact-spacing")
+
+        search.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertLessThan(abs(search.frame.minY - (navigation.frame.maxY + topGap)), 6,
+                          "Search must not move vertically when activated.")
+    }
+
     func testContinuousSearchTypingPreservesKeyboardAndClearButton() {
         let app = launchPreview()
         let search = searchInput(in: app)
