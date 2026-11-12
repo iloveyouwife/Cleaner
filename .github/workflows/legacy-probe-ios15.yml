@@ -1,0 +1,71 @@
+name: iOS 15.4 TrollStore legacy read-only probe
+
+on:
+  push:
+    branches: ['research/ios15-trollstore']
+    paths:
+      - 'LegacyProbe/**'
+      - '.github/workflows/legacy-probe-ios15.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-probe:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
+          xcodebuild -version
+      - name: Install XcodeGen and ldid
+        run: brew install xcodegen ldid
+      - name: Generate iOS 15.4 project
+        run: |
+          cd LegacyProbe
+          xcodegen generate
+      - name: Build iOS 15.4 target
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project LegacyProbe/CleanerLegacyProbe.xcodeproj \
+            -scheme LegacyProbe \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/LegacyDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Validate minimum OS and apply TrollStore entitlement
+        run: |
+          set -euo pipefail
+          app="LegacyDerivedData/Build/Products/Release-iphoneos/LegacyProbe.app"
+          test -d "$app"
+          min_os="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")"
+          echo "MinimumOSVersion=$min_os"
+          test "$min_os" = "15.4"
+          # Only the single, explicitly requested unsandbox entitlement.
+          ! grep -Eq "com.apple.private.cs.debugger|dynamic-codesigning|com.apple.private.skip-library-validation|platform-application" \
+            LegacyProbe/LegacyProbe/LegacyProbe.entitlements
+          ldid -SLegacyProbe/LegacyProbe/LegacyProbe.entitlements "$app/LegacyProbe"
+          ldid -e "$app/LegacyProbe" > legacy-embedded-entitlements.xml
+          grep -q "com.apple.private.security.no-sandbox" legacy-embedded-entitlements.xml
+          cat legacy-embedded-entitlements.xml
+      - name: Package read-only TrollStore probe IPA
+        run: |
+          set -euo pipefail
+          mkdir -p LegacyPayload/Payload
+          cp -R LegacyDerivedData/Build/Products/Release-iphoneos/LegacyProbe.app LegacyPayload/Payload/
+          cd LegacyPayload
+          zip -qr ../Cleaner-LegacyProbe-iOS15.4-TrollStore.ipa Payload
+          cd ..
+          unzip -tq Cleaner-LegacyProbe-iOS15.4-TrollStore.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cleaner-LegacyProbe-iOS15.4-TrollStore
+          path: Cleaner-LegacyProbe-iOS15.4-TrollStore.ipa
+          if-no-files-found: error

@@ -1,0 +1,32 @@
+name: CleanerLegacyProbe
+options:
+  developmentLanguage: zh-Hans
+  deploymentTarget:
+    iOS: "15.4"
+  xcodeVersion: "27.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    CODE_SIGN_STYLE: Manual
+targets:
+  LegacyProbe:
+    type: application
+    platform: iOS
+    sources:
+      - path: LegacyProbe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.iloveyouwife.cleaner.legacyprobe
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: LegacyProbe/LegacyProbe.entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: Cleaner Legacy Probe
+        INFOPLIST_KEY_CFBundleDevelopmentRegion: zh-Hans
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        IPHONEOS_DEPLOYMENT_TARGET: "15.4"
+schemes:
+  LegacyProbe:
+    build:
+      targets:
+        LegacyProbe: all
