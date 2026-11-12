@@ -23,11 +23,13 @@
 2. 使用有效证书签署 IPA，确认 App Group entitlement 随签名实际生效。
 3. 在高级设置中选择可访问的专用组，并确认此组**没有被其他 App 共享使用**。
 
-**重要风险：** 上游临时访问机制可能替换所选 App Group 的缓存目录；误用其他 App 共享的组可能影响它们的数据。不要将共享组用于本工具。
+**重要风险：** v90 的授权暂存仍会临时替换独占 App Group 中的缓存目录入口，但会先将现有目录备份到同组位置，并在请求结束后尝试恢复。异常恢复会拒绝继续，不保证强制结束进程或系统崩溃时完全没有遗留暂存目录。误用其他 App 共享的组可能影响它们的数据。不要将共享组用于本工具。
 
 ## 构建与发行
 
 GitHub Actions 工作流：[Build Cleaner unsigned IPA](../.github/workflows/cleaner-ipa.yml)。
+
+**稳定回退版本：** [Cleaner v0.89.0](https://github.com/iloveyouwife/Cleaner/releases/tag/v0.89.0) 的源码标签和 IPA 保持原样。v90 在其基础上增补安全边界与设置入口修复，出现新问题时可重新安装 v89；同 Bundle ID 重装需注意保留你的签名 App Group 配置。
 
 `main` 是当前稳定源码。自动化使用 Xcode 27 编译未签名 IPA，并在 Actions 保留构建产物。新版本发布时，在 `project.yml` 中将 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 分别递增为 `0.N.0` 和 `N`；提交到 `main` 后，流水线通过校验并发现该标签尚不存在，就会自动创建 `v0.N.0` 标签并将 IPA 发布到 [Releases](https://github.com/iloveyouwife/Cleaner/releases)。已发布版本不会被自动覆盖。
 
