@@ -1,6 +1,15 @@
 import SwiftUI
 import UIKit
 
+// One source of truth for header visibility: actual scroll position.
+// Keep input focus and keyboard outside dynamic List section lifetimes.
+enum CleanerSearchScrollMetrics {
+    static func collapseAmount(scrollOffset: CGFloat, fullHeight: CGFloat) -> CGFloat {
+        guard scrollOffset.isFinite, fullHeight.isFinite, fullHeight > 0 else { return 0 }
+        return min(fullHeight, max(0, scrollOffset))
+    }
+}
+
 // 3105 CleanerView's layout: search, summary, sortable/selectable app rows,
 // selection menu, bulk action, and confirmation. The backend is worse_query.
 struct ContentView: View {
@@ -17,9 +26,6 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var searchPresented = false
     @State private var searchCollapse: CGFloat = 0
-    @State private var listNearTop = true
-    @State private var searchDragStartCollapse: CGFloat?
-    @State private var searchDragStartTranslation: CGFloat?
     @FocusState private var searchFieldFocused: Bool
     @State private var appliedSearchText = ""
     @State private var orderedApps: [WCTarget] = []
@@ -47,50 +53,11 @@ struct ContentView: View {
         reduceMotion ? nil : .easeInOut(duration: 0.28)
     }
 
-    // The header follows finger displacement in small, clamped increments.
-    // Do not feed List.contentOffset straight back into this height: changing
-    // the sibling header changes List's geometry and can cause visible jumps.
-    // Its TextField remains mounted even when the header is fully clipped.
+    // The List's real scroll offset is the only search visibility signal.
+    // No drag thresholds, top-state gates, or end-of-gesture snapping.
     private var searchFullHeight: CGFloat { searchBarHeight + 28 }
     private var searchHeaderHeight: CGFloat {
         max(0, searchFullHeight - searchCollapse)
-    }
-
-    private func trackSearchDrag(_ value: DragGesture.Value) {
-        let vertical = value.translation.height
-        guard abs(vertical) > abs(value.translation.width) else { return }
-        // While scrolled deep into the App list, don't reveal a detached
-        // search drawer. Allow the same downward gesture to reveal it only
-        // after the List reaches its top.
-        if vertical > 0 && !listNearTop && searchCollapse > 0 { return }
-
-        if searchDragStartTranslation == nil {
-            searchDragStartTranslation = vertical
-            searchDragStartCollapse = searchCollapse
-        }
-        let distance = vertical - (searchDragStartTranslation ?? vertical)
-        // Use a gentler response than a 1:1 fling. A fast swipe no longer
-        // jumps 70pt based on a single coarse contentOffset notification.
-        let target = (searchDragStartCollapse ?? searchCollapse) - distance * 0.7
-        let clamped = min(searchFullHeight, max(0, target))
-        if abs(searchCollapse - clamped) > 0.25 {
-            searchCollapse = clamped
-        }
-    }
-
-    private func finishSearchDrag(_ value: DragGesture.Value) {
-        searchDragStartCollapse = nil
-        searchDragStartTranslation = nil
-        let delta = value.translation
-        guard abs(delta.height) > 28, abs(delta.height) > abs(delta.width) else { return }
-        // Keep v71 behavior of ending an active keyboard session on swipes.
-        if searchPresented { setSearchPresented(false) }
-        // Only settle the remaining partial distance, with a short ease-out.
-        // Never switch visibility abruptly on gesture completion.
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
-            searchCollapse = searchCollapse >= searchFullHeight * 0.5
-                ? searchFullHeight : 0
-        }
     }
 
     private func setSearchPresented(_ presented: Bool, clearQuery: Bool = false) {
@@ -217,6 +184,10 @@ struct ContentView: View {
                     .padding(.horizontal, 22)
                     .padding(.top, 18)
                     .padding(.bottom, 10)
+                    .frame(height: searchFullHeight, alignment: .top)
+                    // Move the complete search capsule upward as content
+                    // scrolls. Do not chop it from the bottom in place.
+                    .offset(y: -searchCollapse)
                     .frame(height: searchHeaderHeight, alignment: .top)
                     .clipped()
                     .allowsHitTesting(searchHeaderHeight > 20)
@@ -261,13 +232,24 @@ struct ContentView: View {
                 // scrolling and the persistent search responder unchanged.
                 .scrollEdgeEffectStyle(.soft, for: .top)
                 .contentMargins(.top, 0, for: .scrollContent)
-                .onScrollGeometryChange(for: Bool.self) { geometry in
-                    // Observe only whether the list has returned near top.
-                    // Unlike a raw CGFloat offset, a Bool avoids constantly
-                    // rebuilding the whole List while its header collapses.
-                    geometry.contentOffset.y + geometry.contentInsets.top < 10
-                } action: { _, atTop in
-                    listNearTop = atTop
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    // Read the scroll coordinate relative to the List's top.
+                    // A single absolute position allows immediate recovery on
+                    // the FIRST return swipe, even after inertial scrolling.
+                    geometry.contentOffset.y + geometry.contentInsets.top
+                } action: { _, offset in
+                    // While editing, updates to result rows may change scroll
+                    // geometry. They must not move the active keyboard field.
+                    guard !(searchPresented && searchFieldFocused) else { return }
+                    let next = CleanerSearchScrollMetrics.collapseAmount(
+                        scrollOffset: offset, fullHeight: searchFullHeight
+                    )
+                    guard abs(next - searchCollapse) > 0.35 else { return }
+                    // Smooth coarse scroll notifications. Removing the v82
+                    // 50% snap and near-top gate prevents random sticky bars.
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.16, extraBounce: 0)) {
+                        searchCollapse = next
+                    }
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .simultaneousGesture(
@@ -278,9 +260,14 @@ struct ContentView: View {
                     }
                 )
                 .simultaneousGesture(
-                    DragGesture(minimumDistance: 4)
-                        .onChanged { value in trackSearchDrag(value) }
-                        .onEnded { value in finishSearchDrag(value) }
+                    DragGesture(minimumDistance: 20).onEnded { value in
+                        // Retain v71's swipe-to-dismiss keyboard only.
+                        // The gesture must never control search visibility.
+                        let delta = value.translation
+                        guard abs(delta.height) > 28,
+                              abs(delta.height) > abs(delta.width) else { return }
+                        if searchPresented { setSearchPresented(false) }
+                    }
                 )
                 .task(id: searchText) {
                 // The keyboard remains responsive; filter once after a brief

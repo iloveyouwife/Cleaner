@@ -3,6 +3,42 @@ import XCTest
 @testable import WorseCleaner
 
 final class CleanerUnitTests: XCTestCase {
+    func testSearchScrollCollapseTracksOnlyRealPosition() {
+        let height: CGFloat = 70
+        let offsets: [CGFloat] = [-80, 0, 12, 35, 70, 200, 70, 35, 12, 0]
+        let expected: [CGFloat] = [0, 0, 12, 35, 70, 70, 70, 35, 12, 0]
+        for (offset, collapse) in zip(offsets, expected) {
+            XCTAssertEqual(
+                CleanerSearchScrollMetrics.collapseAmount(
+                    scrollOffset: offset, fullHeight: height
+                ),
+                collapse,
+                accuracy: 0.001
+            )
+        }
+    }
+
+    func testSearchScrollReturnDoesNotRequireSecondGesture() {
+        let height: CGFloat = 70
+        // Unlike the v82 near-top gate or 50% threshold, a single reverse
+        // movement must always update the visible search height.
+        XCTAssertEqual(
+            CleanerSearchScrollMetrics.collapseAmount(
+                scrollOffset: 35, fullHeight: height
+            ), 35
+        )
+        XCTAssertEqual(
+            CleanerSearchScrollMetrics.collapseAmount(
+                scrollOffset: 0, fullHeight: height
+            ), 0
+        )
+        XCTAssertEqual(
+            CleanerSearchScrollMetrics.collapseAmount(
+                scrollOffset: .infinity, fullHeight: height
+            ), 0
+        )
+    }
+
     private let uuidA = "6D5EB8BD-80D3-49C8-88A3-98AC3A2564DE"
     private let uuidB = "3E8BDFE9-10F6-4EE3-9259-8489DD08FA61"
 
