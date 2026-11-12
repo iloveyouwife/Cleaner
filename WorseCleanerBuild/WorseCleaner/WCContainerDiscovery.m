@@ -121,7 +121,11 @@ NSString *WCFindLaunchServicesStoreQuick(void) {
     NSString *found = WCFindRecentLSStore(fsid, probe + kWCInodeMargin, &inode,
                                           UINT64_MAX, 20);
     if (indexPath) {
-        NSMutableDictionary *updated = saved ? [saved mutableCopy] : [NSMutableDictionary new];
+        // A different Data volume invalidates every cached inode map.
+        // Start from an empty index rather than relabeling old app entries
+        // with the new volume identifier.
+        NSMutableDictionary *updated = sameVolume && saved
+            ? [saved mutableCopy] : [NSMutableDictionary new];
         updated[@"fs0"] = @(fsid.val[0]);
         updated[@"fs1"] = @(fsid.val[1]);
         if (found) {
@@ -325,7 +329,11 @@ NSDictionary<NSString *, id> *WCDiscoverDataContainers(
         // Without this, a full inode refresh erases its 24h backoff marker.
         NSNumber *miss = [saved[@"lsMissAt"] isKindOfClass:NSNumber.class]
             ? saved[@"lsMissAt"] : nil;
-        if (!lsStore && miss) index[@"lsMissAt"] = miss;
+        // A negative scan result belongs to its original volume only.
+        BOOL sameIndexedVolume = [fs0 isKindOfClass:NSNumber.class] &&
+            [fs1 isKindOfClass:NSNumber.class] &&
+            fs0.intValue == volume.val[0] && fs1.intValue == volume.val[1];
+        if (!lsStore && sameIndexedVolume && miss) index[@"lsMissAt"] = miss;
         [index writeToFile:indexPath atomically:YES];
     }
     return @{
