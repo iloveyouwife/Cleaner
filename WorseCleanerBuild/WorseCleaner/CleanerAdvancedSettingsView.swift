@@ -81,7 +81,7 @@ struct CleanerAdvancedSettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(model.busy)
+                    .disabled(model.busy || !model.canDiscoverApps)
                 } header: {
                     CleanerSectionHeading("扫描工具")
                 } footer: {
@@ -93,6 +93,7 @@ struct CleanerAdvancedSettingsView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(.body.monospaced())
+                        .disabled(!model.canDiscoverApps)
                     Button {
                         model.addManualPath(manualPath.trimmingCharacters(in: .whitespacesAndNewlines))
                         manualPath = ""
@@ -102,7 +103,7 @@ struct CleanerAdvancedSettingsView: View {
                                              tint: .accentColor,
                                              emphasized: false)
                     }
-                    .disabled(manualPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy)
+                    .disabled(manualPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.busy || !model.canDiscoverApps)
                 } header: {
                     CleanerSectionHeading("手动添加")
                 } footer: {

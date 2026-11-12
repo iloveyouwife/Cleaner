@@ -1,6 +1,14 @@
 import SwiftUI
 import Darwin
 
+// A valid signature alone does not authorize background container discovery.
+// The user must explicitly confirm that this App Group belongs to Cleaner.
+enum CleanerDiscoveryGate {
+    static func allowsDiscovery(appGroupReady: Bool, groupConfirmed: Bool) -> Bool {
+        appGroupReady && groupConfirmed
+    }
+}
+
 @MainActor
 final class WorseCleanerModel: ObservableObject {
     @Published var apps: [WCTarget] = [] {
@@ -44,12 +52,44 @@ final class WorseCleanerModel: ObservableObject {
     private var lastLaunchServicesStamp: WCLaunchServicesStamp?
     private var completedCacheScan = false
 
+    var canDiscoverApps: Bool {
+        CleanerDiscoveryGate.allowsDiscovery(
+            appGroupReady: appGroupReady, groupConfirmed: groupConfirmed
+        )
+    }
+
+    /// A disabled group cannot leave cached results or app identities looking
+    /// like freshly authorized data. This is UI state only; it never touches
+    /// another application's files or saved manual exclusions.
+    private func clearDiscoveryWhenUnconfirmed() {
+        apps.removeAll()
+        usage.removeAll()
+        scannedAppCount = 0
+        scanTargetCount = 0
+        discoveredBundleRoots.removeAll()
+        discoveredLSStore = nil
+        discoveryDiagnostics = ""
+        discoveryPercent = 0
+        catalogMemo = nil
+        lastLaunchServicesStamp = nil
+        completedCacheScan = false
+        status = "请先在高级设置中确认专用 App Group。确认前不会发现 App 或扫描缓存。"
+    }
+
     func setGroupConfirmed(_ value: Bool) {
+        let wasAllowed = canDiscoverApps
         groupConfirmed = value && appGroupReady
         if groupConfirmed {
             UserDefaults.standard.set(groupID, forKey: confirmedGroupKey)
         } else if UserDefaults.standard.string(forKey: confirmedGroupKey) == groupID {
             UserDefaults.standard.removeObject(forKey: confirmedGroupKey)
+        }
+        if !canDiscoverApps {
+            clearDiscoveryWhenUnconfirmed()
+        } else if !wasAllowed && !busy {
+            // Granting permission should resume the existing normal startup
+            // flow, with no extra tap on the refresh button required.
+            loadApps()
         }
     }
 
@@ -91,18 +131,23 @@ final class WorseCleanerModel: ObservableObject {
         }
         groupConfirmed = appGroupReady &&
             UserDefaults.standard.string(forKey: confirmedGroupKey) == groupID
+        if !canDiscoverApps {
+            clearDiscoveryWhenUnconfirmed()
+        }
     }
 
     func loadApps() {
         guard !busy else { return }
+        // Re-check the actual signing state before *any* MCM/LS/inode calls.
+        refreshSigning()
+        guard canDiscoverApps else { return }
         // Explicit App-list refresh must re-read current app identities.
         catalogMemo = nil
         lastLaunchServicesStamp = nil
         completedCacheScan = false
-        refreshSigning()
         busy = true
         status = "正在读取已安装 App 的容器列表……"
-        let selectedGroup = groupConfirmed && appGroupReady ? groupID : ""
+        let selectedGroup = groupID
         queue.async {
             var error: NSString?
             let raw = WCEnumerateApplicationContainers(&error)
@@ -153,7 +198,12 @@ final class WorseCleanerModel: ObservableObject {
     }
 
     func addManualPath(_ path: String) {
-        guard !busy else { return }
+        guard !busy, canDiscoverApps else {
+            if !canDiscoverApps {
+                status = "请先确认专用 App Group，再添加容器。"
+            }
+            return
+        }
         do {
             let target = try WCTarget(bundleID: "manual", name: "手动指定的 App", path: path)
             let identity = WCPathDiscovery.containerIdentity(target.path)
@@ -167,7 +217,12 @@ final class WorseCleanerModel: ObservableObject {
     }
 
     func deepDiscoverApps(automaticallyScan: Bool = false) {
-        guard !busy else { return }
+        guard !busy, canDiscoverApps else {
+            if !canDiscoverApps {
+                status = "请先确认专用 App Group，当前不会执行深度搜索。"
+            }
+            return
+        }
         catalogMemo = nil
         lastLaunchServicesStamp = nil
         completedCacheScan = false
@@ -371,7 +426,7 @@ final class WorseCleanerModel: ObservableObject {
     /// Optional recovery when iOS blocks installed app Info.plist and
     /// LaunchServices names. The UI must explicitly disclose the Apple lookup.
     func completeMissingNamesOnline() {
-        guard !busy else { return }
+        guard !busy, canDiscoverApps else { return }
         let candidates = Array(Set(apps.compactMap { app -> String? in
             guard app.name == app.bundleID, app.bundleID.contains("."),
                   !app.bundleID.hasPrefix("group.") else { return nil }

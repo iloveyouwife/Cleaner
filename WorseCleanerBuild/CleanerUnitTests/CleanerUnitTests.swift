@@ -3,6 +3,52 @@ import XCTest
 @testable import WorseCleaner
 
 final class CleanerUnitTests: XCTestCase {
+    func testDiscoveryRequiresBothAvailableAndConfirmedAppGroup() {
+        XCTAssertFalse(CleanerDiscoveryGate.allowsDiscovery(
+            appGroupReady: false, groupConfirmed: false
+        ))
+        XCTAssertFalse(CleanerDiscoveryGate.allowsDiscovery(
+            appGroupReady: true, groupConfirmed: false
+        ))
+        XCTAssertFalse(CleanerDiscoveryGate.allowsDiscovery(
+            appGroupReady: false, groupConfirmed: true
+        ))
+        XCTAssertTrue(CleanerDiscoveryGate.allowsDiscovery(
+            appGroupReady: true, groupConfirmed: true
+        ))
+    }
+
+    @MainActor
+    func testRevokingPermissionDropsDisplayedCacheAndBlocksDiscovery() {
+        let model = WorseCleanerModel()
+        let app = target(uuidA)
+        model.apps = [app]
+        model.usage = [
+            app.id: LimitedCleanerUsage(
+                cacheBytes: 1024, temporaryBytes: 512, removableItemCount: 2
+            )
+        ]
+        model.scannedAppCount = 1
+        model.appGroupReady = false
+        model.setGroupConfirmed(false)
+
+        XCTAssertFalse(model.canDiscoverApps)
+        XCTAssertTrue(model.apps.isEmpty)
+        XCTAssertTrue(model.usage.isEmpty)
+        XCTAssertEqual(model.scannedAppCount, 0)
+        XCTAssertEqual(model.scanTargetCount, 0)
+
+        model.loadApps()
+        XCTAssertFalse(model.busy, "No MCM, LaunchServices or inode search without permission.")
+        XCTAssertTrue(model.apps.isEmpty)
+        model.deepDiscoverApps()
+        XCTAssertFalse(model.busy, "Manual deep discovery must not run without permission.")
+        model.addManualPath(app.path)
+        XCTAssertTrue(model.apps.isEmpty)
+        model.completeMissingNamesOnline()
+        XCTAssertFalse(model.busy)
+    }
+
     func testSearchScrollCollapseTracksOnlyRealPosition() {
         let height: CGFloat = 70
         let offsets: [CGFloat] = [-80, 0, 12, 35, 70, 200, 70, 35, 12, 0]

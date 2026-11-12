@@ -74,6 +74,12 @@ checks = {
     "Verified grant flags are updated":
         "preferredAlternative = alternative" in grant
         and "if preferredAlternative == nil" not in grant,
+    "App discovery requires explicit App Group confirmation":
+        "guard canDiscoverApps else { return }" in model
+        and "guard !busy, canDiscoverApps else {" in model
+        and "clearDiscoveryWhenUnconfirmed()" in model
+        and "CleanerDiscoveryGate.allowsDiscovery" in model
+        and "if !wasAllowed && !busy" in model,
     "Only manual exclusions determine eligible scan targets":
         "WCScanExclusions.eligibleTargets" in model
         and "enum WCScanExclusions" in engine

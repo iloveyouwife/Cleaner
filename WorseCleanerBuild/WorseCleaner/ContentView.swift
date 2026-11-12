@@ -333,7 +333,7 @@ struct ContentView: View {
                     } label: {
                         CleanerToolbarSymbol(name: "arrow.clockwise")
                     }
-                    .disabled(model.busy)
+                    .disabled(model.busy || !model.canDiscoverApps)
                     .accessibilityLabel("刷新 App 列表")
                     Menu {
                         Button {
@@ -341,7 +341,7 @@ struct ContentView: View {
                         } label: {
                             Label("补全 App 名称", systemImage: "magnifyingglass.circle")
                         }
-                        .disabled(model.busy)
+                        .disabled(model.busy || !model.canDiscoverApps)
                         Button {
                             showingAdvancedSettings = true
                         } label: {
@@ -419,7 +419,7 @@ struct ContentView: View {
                     // No privileged scans or filesystem operations are performed.
                     CleanerScreenshotFixtures.install(into: model)
                     model.appGroupReady = false
-                    model.groupConfirmed = false
+                    model.setGroupConfirmed(false)
                 } else if arguments.contains("-captureLongRows") {
                     CleanerScreenshotFixtures.install(into: model, longNamesOnly: true)
                 } else if arguments.contains(where: { $0.hasPrefix("-capturePopulated") }) {
@@ -755,7 +755,7 @@ struct ContentView: View {
         Section {
             CleanerSettingsLabel(symbol: "exclamationmark.triangle",
                                  title: "请确认 App Group",
-                                 subtitle: "未确认前无法扫描或清理缓存。",
+                                 subtitle: "未确认前不会发现 App、扫描或清理缓存。",
                                  tint: .orange)
             Button("打开高级设置") { showingAdvancedSettings = true }
                 // List's automatic row button style can compete with the

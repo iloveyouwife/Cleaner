@@ -274,11 +274,20 @@ final class CleanerUITests: XCTestCase {
         XCTAssertTrue(open.waitForExistence(timeout: 10),
                       "Warning must expose an actionable settings button.")
         XCTAssertTrue(open.isHittable, "The warning action must be tappable.")
+        XCTAssertFalse(app.buttons["刷新 App 列表"].isEnabled,
+                       "Refresh must be disabled until the App Group is confirmed.")
+        XCTAssertTrue(app.staticTexts["0 KB"].exists,
+                      "Revoking permission must clear previously scanned cache results.")
         capture("unconfirmed-warning-before-tap")
         open.tap()
         XCTAssertTrue(app.navigationBars["高级设置"].waitForExistence(timeout: 10),
                       "Tapping the warning action must present advanced settings.")
         XCTAssertTrue(app.buttons["完成"].exists)
+        let deepScan = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "深度发现 App 容器")
+        ).firstMatch
+        XCTAssertTrue(deepScan.exists)
+        XCTAssertFalse(deepScan.isEnabled, "Deep discovery must require confirmation.")
         capture("unconfirmed-warning-settings-open")
         app.buttons["完成"].tap()
         XCTAssertTrue(app.buttons["打开高级设置"].waitForExistence(timeout: 5),
