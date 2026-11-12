@@ -316,4 +316,140 @@ final class CleanerUnitTests: XCTestCase {
         XCTAssertEqual(result.failedItemCount, 0)
         XCTAssertTrue(fm.fileExists(atPath: preserved.path))
     }
+
+    func testCleanupMidOperationPermissionFailureCountsConfirmedRemovals() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(
+            "CleanerPartialFailure-\(UUID().uuidString)", isDirectory: true
+        )
+        defer { try? fm.removeItem(at: root) }
+        let caches = root.appendingPathComponent("Library/Caches", isDirectory: true)
+        let tmp = root.appendingPathComponent("tmp", isDirectory: true)
+        let documents = root.appendingPathComponent("Documents", isDirectory: true)
+        for path in [caches, tmp, documents] {
+            try fm.createDirectory(at: path, withIntermediateDirectories: true)
+        }
+        let cacheFile = caches.appendingPathComponent("cache.bin")
+        let tmpFile = tmp.appendingPathComponent("tmp.bin")
+        let docFile = documents.appendingPathComponent("important.txt")
+        try Data("abc".utf8).write(to: cacheFile)
+        try Data("12345".utf8).write(to: tmpFile)
+        try Data("keep".utf8).write(to: docFile)
+
+        var visited: [[String]] = []
+        let result = try LimitedCleanerService.clean(
+            containerURL: root, rootValidator: { $0.path == root.path },
+            beforeOpeningDirectory: { components in
+                visited.append(components)
+                if components == ["tmp"] {
+                    // Simulate EPERM after Caches was actually unlinked,
+                    // not an inaccessible directory during the initial scan.
+                    throw LimitedCleanerError.inaccessible("tmp", EPERM)
+                }
+            }
+        )
+        XCTAssertEqual(visited, [["Library", "Caches"], ["tmp"]])
+        XCTAssertEqual(result.removedItemCount, 1)
+        XCTAssertEqual(result.failedItemCount, 1)
+        XCTAssertEqual(result.freedBytes, 3)
+        XCTAssertEqual(result.after.cacheBytes, 0)
+        XCTAssertEqual(result.after.temporaryBytes, 5)
+        XCTAssertFalse(fm.fileExists(atPath: cacheFile.path))
+        XCTAssertTrue(fm.fileExists(atPath: tmpFile.path))
+        XCTAssertEqual(try String(contentsOf: docFile, encoding: .utf8), "keep")
+    }
+
+    func testCleanupPermissionFailureBeforeFirstDeletionReportsNoFreedBytes() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(
+            "CleanerEarlyFailure-\(UUID().uuidString)", isDirectory: true
+        )
+        defer { try? fm.removeItem(at: root) }
+        let caches = root.appendingPathComponent("Library/Caches", isDirectory: true)
+        try fm.createDirectory(at: caches, withIntermediateDirectories: true)
+        let file = caches.appendingPathComponent("keep.bin")
+        try Data("keep".utf8).write(to: file)
+        let result = try LimitedCleanerService.clean(
+            containerURL: root, rootValidator: { $0.path == root.path },
+            beforeOpeningDirectory: { _ in
+                throw LimitedCleanerError.inaccessible("Library/Caches", EPERM)
+            }
+        )
+        XCTAssertEqual(result.removedItemCount, 0)
+        XCTAssertEqual(result.failedItemCount, 1)
+        XCTAssertEqual(result.freedBytes, 0)
+        XCTAssertTrue(fm.fileExists(atPath: file.path))
+    }
+
+    func testWorseQueryStagingPreservesAppGroupCacheFiles() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(
+            "CleanerStaging-\(UUID().uuidString)", isDirectory: true
+        )
+        defer { try? fm.removeItem(at: root) }
+        let caches = root.appendingPathComponent("Library/Caches", isDirectory: true)
+        let target = root.appendingPathComponent("other-app-cache", isDirectory: true)
+        try fm.createDirectory(at: caches, withIntermediateDirectories: true)
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        let original = caches.appendingPathComponent("preserve.bin")
+        let targetFile = target.appendingPathComponent("target.bin")
+        try Data("original".utf8).write(to: original)
+        try Data("target".utf8).write(to: targetFile)
+
+        XCTAssertTrue(WQCacheStageBegin(caches.path, target.path))
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: caches.path), target.path)
+        XCTAssertTrue(fm.fileExists(atPath: caches.path + ".wq-preserved/preserve.bin"))
+        XCTAssertTrue(WQCacheStageEnd(caches.path, target.path))
+        XCTAssertEqual(try Data(contentsOf: original), Data("original".utf8))
+        XCTAssertFalse(fm.fileExists(atPath: caches.path + ".wq-preserved"))
+        XCTAssertEqual(try Data(contentsOf: targetFile), Data("target".utf8))
+    }
+
+    func testWorseQueryStagingRestoresCacheAfterQueryFailure() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(
+            "CleanerStageFailure-\(UUID().uuidString)", isDirectory: true
+        )
+        defer { try? fm.removeItem(at: root) }
+        let caches = root.appendingPathComponent("Library/Caches", isDirectory: true)
+        try fm.createDirectory(at: caches, withIntermediateDirectories: true)
+        let original = caches.appendingPathComponent("keep.txt")
+        try Data("keep".utf8).write(to: original)
+        let missingTarget = root.appendingPathComponent("foreign-unavailable")
+        XCTAssertTrue(WQCacheStageBegin(caches.path, missingTarget.path))
+        // Simulate a container_query rejection before token acquisition.
+        XCTAssertTrue(WQCacheStageEnd(caches.path, missingTarget.path))
+        XCTAssertEqual(try Data(contentsOf: original), Data("keep".utf8))
+    }
+
+    func testWorseQueryStagingFailsClosedForLeftoverBackupOrUnexpectedLink() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(
+            "CleanerStageFailClosed-\(UUID().uuidString)", isDirectory: true
+        )
+        defer { try? fm.removeItem(at: root) }
+        let caches = root.appendingPathComponent("Library/Caches", isDirectory: true)
+        let backup = URL(fileURLWithPath: caches.path + ".wq-preserved")
+        let target = root.appendingPathComponent("target", isDirectory: true)
+        try fm.createDirectory(at: caches, withIntermediateDirectories: true)
+        try fm.createDirectory(at: backup, withIntermediateDirectories: true)
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        let original = caches.appendingPathComponent("original.txt")
+        let preserved = backup.appendingPathComponent("previous.txt")
+        try Data("original".utf8).write(to: original)
+        try Data("previous".utf8).write(to: preserved)
+        XCTAssertFalse(WQCacheStageBegin(caches.path, target.path))
+        XCTAssertEqual(try Data(contentsOf: original), Data("original".utf8))
+        XCTAssertEqual(try Data(contentsOf: preserved), Data("previous".utf8))
+        XCTAssertTrue(fm.fileExists(atPath: caches.path))
+
+        try fm.removeItem(at: backup)
+        try fm.removeItem(at: caches)
+        try fm.createSymbolicLink(atPath: caches.path, withDestinationPath: target.path)
+        XCTAssertFalse(WQCacheStageBegin(caches.path, target.path))
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: caches.path), target.path)
+        XCTAssertTrue(fm.fileExists(atPath: target.path))
+        XCTAssertFalse(WQCacheStageEnd(caches.path, root.path))
+    }
+
 }

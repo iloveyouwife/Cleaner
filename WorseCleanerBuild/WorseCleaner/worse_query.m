@@ -41,18 +41,65 @@ typedef char *(*container_copy_sandbox_token_fn)(void *);
 typedef int64_t (*sandbox_extension_consume_fn)(const char *);
 typedef int (*sandbox_extension_release_fn)(int64_t);
 
-// Remove symlink and recreate Caches directory
-static void clean_symlink(NSString *group) {
-    if (group != NULL) {
-        NSFileManager *files = [NSFileManager defaultManager];
-        NSURL *groupRoot = [files containerURLForSecurityApplicationGroupIdentifier: group];
-        if (groupRoot) {
-            NSURL *caches = [groupRoot URLByAppendingPathComponent: @"Library/Caches"];
-            [files removeItemAtURL: caches error: nil];
-            [files createDirectoryAtURL: caches withIntermediateDirectories: false attributes: nil error: nil];
-        }
+// Preserve the exact dedicated App Group Caches directory while the same
+// container_query operation temporarily requires a Caches symlink. Previously
+// the directory and *all its contents* were deleted on every grant request.
+// This fixed-location backup is exclusively within the signed App Group.
+// A leftover backup from a crashed process is never overwritten or deleted;
+// instead the request fails closed until safe recovery can be verified.
+static NSString *WQCacheBackupPath(NSString *caches) {
+    return [caches stringByAppendingString:@".wq-preserved"];
+}
+
+static BOOL WQPathStat(NSString *path, struct stat *info) {
+    return lstat(path.fileSystemRepresentation, info) == 0;
+}
+
+BOOL WQCacheStageBegin(NSString *caches, NSString *target) {
+    if (caches.length == 0 || target.length == 0) return NO;
+    NSFileManager *files = [NSFileManager defaultManager];
+    NSString *backup = WQCacheBackupPath(caches);
+    struct stat info;
+
+    // Neither an abandoned backup nor an unexpected existing symlink is
+    // disposable. Reject rather than guessing at ownership.
+    if (WQPathStat(backup, &info) || errno != ENOENT) return NO;
+
+    BOOL preserved = WQPathStat(caches, &info);
+    if (!preserved && errno != ENOENT) return NO;
+    if (preserved) {
+        if (!S_ISDIR(info.st_mode)) return NO;
+        if (![files moveItemAtPath:caches toPath:backup error:nil]) return NO;
     }
-    return;
+
+    if (![files createSymbolicLinkAtPath:caches withDestinationPath:target error:nil]) {
+        if (preserved) {
+            // Leave the original data in the backup even if this move fails.
+            [files moveItemAtPath:backup toPath:caches error:nil];
+        }
+        return NO;
+    }
+    return YES;
+}
+
+BOOL WQCacheStageEnd(NSString *caches, NSString *target) {
+    if (caches.length == 0 || target.length == 0) return NO;
+    NSFileManager *files = [NSFileManager defaultManager];
+    struct stat info;
+    // Do not remove a file or real folder if something replaced the link.
+    if (!WQPathStat(caches, &info) || !S_ISLNK(info.st_mode)) return NO;
+    NSString *destination = [files destinationOfSymbolicLinkAtPath:caches error:nil];
+    if (![destination isEqualToString:target]) return NO;
+    if (![files removeItemAtPath:caches error:nil]) return NO;
+
+    NSString *backup = WQCacheBackupPath(caches);
+    if (WQPathStat(backup, &info)) {
+        return S_ISDIR(info.st_mode) &&
+            [files moveItemAtPath:backup toPath:caches error:nil];
+    }
+    if (errno != ENOENT) return NO;
+    return [files createDirectoryAtPath:caches
+           withIntermediateDirectories:NO attributes:nil error:nil];
 }
 
 // So, who's ready for round two?
@@ -111,22 +158,11 @@ int64_t worse_query(NSString *target, NSString *group, bool alt_flags, bool crea
         query_set_flags(query, 0x0000008000000000ULL);
     }
     
-    // Work only inside the dedicated App Group. If the current folder
-    // cannot be removed, leave it intact rather than forcing cleanup.
-    NSError *removeError = nil;
-    BOOL cacheExists = [files fileExistsAtPath:caches] ||
-        [files destinationOfSymbolicLinkAtPath:caches error:nil] != nil;
-    if (cacheExists && ![files removeItemAtPath:caches error:&removeError]) {
+    // Only the staging directory handling changes: preserve its contents.
+    // Query class, part, flags, target and token flow remain unchanged.
+    if (!WQCacheStageBegin(caches, target)) {
         query_free(query);
         dlclose(mgr);
-        return -4;
-    }
-    if (![files createSymbolicLinkAtPath:caches withDestinationPath:target error:nil]) {
-        query_free(query);
-        dlclose(mgr);
-        // The original folder was removed successfully; restore the
-        // dedicated staging directory after a failed link creation.
-        clean_symlink(group);
         return -4;
     }
     
@@ -135,15 +171,13 @@ int64_t worse_query(NSString *target, NSString *group, bool alt_flags, bool crea
     if (!result) {
         query_free(query);
         dlclose(mgr);
-        clean_symlink(group);
-        return -5; // Query rejected by containermanagerd
+        return WQCacheStageEnd(caches, target) ? -5 : -4; // Query rejected by containermanagerd
     }
     char *token = copy_sandbox_token(result);
     if (!token) {
         query_free(query);
         dlclose(mgr);
-        clean_symlink(group);
-        return -6; // Kernel refused to issue a sandbox extension
+        return WQCacheStageEnd(caches, target) ? -6 : -4; // Kernel refused to issue a sandbox extension
     }
     
     // Consume sandbox extension and clean up
@@ -151,8 +185,11 @@ int64_t worse_query(NSString *target, NSString *group, bool alt_flags, bool crea
     query_free(query);
     free(token);
     dlclose(mgr);
-    clean_symlink(group);
-    
+    if (!WQCacheStageEnd(caches, target)) {
+        if (handle > 0) worse_query_release(handle);
+        return -4;
+    }
+
     return handle;
 }
 

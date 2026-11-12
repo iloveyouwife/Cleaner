@@ -30,6 +30,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// Exposed for isolated, read/write-free-to-target staging regression tests.
+// Never call these helpers for foreign App containers; worse_query only passes
+// its own signed App Group Library/Caches staging path.
+BOOL WQCacheStageBegin(NSString *caches, NSString *target);
+BOOL WQCacheStageEnd(NSString *caches, NSString *target);
+
 int64_t worse_query(NSString *path, NSString *group, bool alt_flags, bool create_dir);
 void worse_query_release(int64_t handle);
 

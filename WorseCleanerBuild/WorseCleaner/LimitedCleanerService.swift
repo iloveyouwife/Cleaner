@@ -93,19 +93,43 @@ enum LimitedCleanerService {
         containerURL: URL,
         rootValidator: ContainerRootValidator
     ) throws -> LimitedCleanerResult {
+        try clean(
+            containerURL: containerURL,
+            rootValidator: rootValidator,
+            beforeOpeningDirectory: { _ in }
+        )
+    }
+
+    // Test-only failure-injection seam: production always uses the wrapper
+    // above, which performs precisely the original allowlisted openat calls.
+    // A permission change between the initial scan and a later directory
+    // open must not lose the count of already-unlinked files.
+    static func clean(
+        containerURL: URL,
+        rootValidator: ContainerRootValidator,
+        beforeOpeningDirectory: ([String]) throws -> Void
+    ) throws -> LimitedCleanerResult {
         let before = try scan(containerURL: containerURL, rootValidator: rootValidator)
         var removal = RemovalSummary()
 
         try withValidatedRootDescriptor(containerURL, rootValidator: rootValidator) { rootDescriptor in
             for components in allowedDirectoryComponents {
-                guard let directoryDescriptor = try openDirectoryStrict(
-                    components: components,
-                    relativeTo: rootDescriptor
-                ) else {
-                    continue
+                do {
+                    try beforeOpeningDirectory(components)
+                    guard let directoryDescriptor = try openDirectoryStrict(
+                        components: components,
+                        relativeTo: rootDescriptor
+                    ) else {
+                        continue
+                    }
+                    defer { close(directoryDescriptor) }
+                    removeDirectoryContents(directoryDescriptor, summary: &removal)
+                } catch {
+                    // Stop conservatively; do not attempt further deletions.
+                    // The post-cleanup scan below verifies what was removed.
+                    removal.failedItemCount += 1
+                    break
                 }
-                removeDirectoryContents(directoryDescriptor, summary: &removal)
-                close(directoryDescriptor)
             }
         }
 

@@ -40,11 +40,23 @@ checks = {
     "Unknown LS stamps invalidate name reuse":
         "stampIsCurrent(scanStartLSStamp, scannedLSStamp)" in model
         and "catalogReuseSeconds: TimeInterval = 180" in model,
-    "Query failure releases resources and restores private staging directory":
-        "if (![files createSymbolicLinkAtPath:caches" in query
-        and "query_free(query);" in query
-        and "if (cacheExists && ![files removeItemAtPath:caches" in query
-        and "clean_symlink(group);" in query,
+    "Query staging preserves existing dedicated group caches":
+        "WQCacheStageBegin(caches, target)" in query
+        and "WQCacheStageEnd(caches, target)" in query
+        and "moveItemAtPath:caches toPath:backup" in query
+        and "moveItemAtPath:backup toPath:caches" in query
+        and "if (cacheExists && ![files removeItemAtPath:caches" not in query,
+    "Query token source and authorization flags unchanged":
+        "query_set_class(query, 7)" in query
+        and "query_set_part(query, 3)" in query
+        and "0x0000000800000000ULL" in query
+        and "0x0000008000000000ULL" in query
+        and "consume_extension(token)" in query
+        and "query_free(query);" in query,
+    "Interrupted cleanup verifies already deleted items":
+        "beforeOpeningDirectory(components)" in service
+        and "removal.failedItemCount += 1" in service
+        and "return try resultAfterVerification(" in service,
     "Post-cleanup checks never infer bytes freed":
         "postCleanupVerificationFailed" in service
         and "partial.confirmedRemovedItems" in model,
