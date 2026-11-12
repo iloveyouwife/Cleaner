@@ -220,6 +220,9 @@ final class WorseCleanerModel: ObservableObject {
         let bundleRoots = discoveredBundleRoots
         let lsStore = discoveredLSStore
         let discoveryInfo = discoveryDiagnostics
+        // Read actor-isolated configuration before entering the worker queue.
+        // Avoid accessing a @MainActor static property from a Sendable closure.
+        let catalogReuseSeconds = Self.catalogReuseSeconds
         scannedAppCount = 0
         status = "正在检查已发现 App 的缓存权限……"
         queue.async {
@@ -242,7 +245,7 @@ final class WorseCleanerModel: ObservableObject {
                memo.targetIDs == targetIDs,
                memo.value.containers.count >= 2,
                uptime >= memo.finishedAt,
-               uptime - memo.finishedAt < Self.catalogReuseSeconds {
+               uptime - memo.finishedAt < catalogReuseSeconds {
                 recentCatalog = memo.value
             } else {
                 recentCatalog = nil

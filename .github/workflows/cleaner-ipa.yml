@@ -271,6 +271,10 @@ jobs:
 
       - name: Upload layout screenshot
         if: always()
+        # Screenshot attachment is optional. A transient GitHub artifact
+        # service timeout must not turn passing code/tests into a failed run.
+        # All build, safety, unit and UI checks above remain mandatory.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: Cleaner-layout-preview
