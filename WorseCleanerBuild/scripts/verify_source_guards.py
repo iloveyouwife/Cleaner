@@ -64,13 +64,13 @@ checks = {
         and "if preferredAlternative == nil" not in grant,
     "Only manual exclusions determine eligible scan targets":
         "WCScanExclusions.eligibleTargets" in model
-        and "WCScanExclusions.eligibleTargets" in engine
+        and "enum WCScanExclusions" in engine
         and "protectedCleanerContainer" not in engine,
-    "Scan counts are cached, not recalculated during redraws":
-        "@Published private(set) var eligibleContainerCount = 0" in model
-        and "didSet { refreshEligibleContainerCount() }" in model
+    "One stored scan denominator, no per-frame recount":
+        "@Published private(set) var scanTargetCount = 0" in model
+        and "didSet { refreshScanTargetCount() }" in model
         and "model.scanTargetCount" in ui
-        and "model.eligibleContainerCount" in ui,
+        and "model.eligibleContainerCount" not in ui,
     "Progress denominator matches manual exclusion filtering":
         "scanTargetCount = targets.count" in model,
     "Unit test suite included in scheme":

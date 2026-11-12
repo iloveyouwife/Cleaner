@@ -4,7 +4,7 @@ import Darwin
 @MainActor
 final class WorseCleanerModel: ObservableObject {
     @Published var apps: [WCTarget] = [] {
-        didSet { refreshEligibleContainerCount() }
+        didSet { refreshScanTargetCount() }
     }
     @Published var usage: [String: LimitedCleanerUsage] = [:]
     @Published var busy = false
@@ -14,9 +14,9 @@ final class WorseCleanerModel: ObservableObject {
     @Published var groupID = ""
     @Published var groupConfirmed = false
     @Published var scannedAppCount = 0
+    /// Updated when discovered Apps or manual exclusions change, and once
+    /// after the pre-scan recheck. Never recalculated in SwiftUI's body.
     @Published private(set) var scanTargetCount = 0
-    /// Stored once when Apps or exclusions change, never per scroll redraw.
-    @Published private(set) var eligibleContainerCount = 0
     @Published var accessDiagnostics = "尚未进行容器访问诊断。"
     @Published private(set) var excludedPaths = Set(
         UserDefaults.standard.stringArray(forKey: "wc.excludedPaths") ?? []
@@ -53,23 +53,23 @@ final class WorseCleanerModel: ObservableObject {
         }
     }
 
-    private func refreshEligibleContainerCount() {
+    private func refreshScanTargetCount() {
         let next = WCScanExclusions.eligibleTargets(
             apps, excludedPaths: excludedPaths
         ).count
-        if next != eligibleContainerCount { eligibleContainerCount = next }
+        if next != scanTargetCount { scanTargetCount = next }
     }
 
     func exclude(_ paths: Set<String>) {
         excludedPaths.formUnion(paths)
         UserDefaults.standard.set(Array(excludedPaths), forKey: "wc.excludedPaths")
-        refreshEligibleContainerCount()
+        refreshScanTargetCount()
     }
 
     func restoreExcluded(_ paths: Set<String>) {
         excludedPaths.subtract(paths)
         UserDefaults.standard.set(Array(excludedPaths), forKey: "wc.excludedPaths")
-        refreshEligibleContainerCount()
+        refreshScanTargetCount()
     }
 
     func refreshSigning() {
@@ -317,13 +317,11 @@ final class WorseCleanerModel: ObservableObject {
                     scanErrors[reason, default: 0] += 1
                 }
                 let now = ProcessInfo.processInfo.systemUptime
-                // Throttle only progress UI notifications; actual scanning is untouched.
-                if now - lastProgressUpdate >= 0.4 || index + 1 == targets.count {
+                // Keep v85's stable progress cadence; do not slow down the
+                // counter to conceal expensive SwiftUI computations.
+                if now - lastProgressUpdate >= 0.15 || index + 1 == targets.count {
                     lastProgressUpdate = now
-                    let progress = index + 1
-                    DispatchQueue.main.async {
-                        if self.scannedAppCount != progress { self.scannedAppCount = progress }
-                    }
+                    DispatchQueue.main.async { self.scannedAppCount = index + 1 }
                 }
             }
             let inspectionDuration = ProcessInfo.processInfo.systemUptime - inspectionStarted

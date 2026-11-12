@@ -520,7 +520,7 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(model.busy ? "扫描中 · \(model.scannedAppCount) / \(model.scanTargetCount)" : "重新扫描缓存")
                                 .font(.subheadline.weight(.semibold))
-                            Text("\(model.busy ? model.scanTargetCount : model.eligibleContainerCount) 个数据容器 · 仅检查 Caches / tmp")
+                            Text("\(model.scanTargetCount) 个数据容器 · 仅检查 Caches / tmp")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
