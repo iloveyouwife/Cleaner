@@ -91,12 +91,12 @@ final class WorseCleanerModel: ObservableObject {
         queue.async {
             var error: NSString?
             let raw = WCEnumerateApplicationContainers(&error)
-            let apps = raw.compactMap { item -> WCTarget? in
+            let apps = WCPathDiscovery.uniqueContainers(raw.compactMap { item -> WCTarget? in
                 guard let id = item["bundleID"], let path = item["path"] else { return nil }
                 return try? WCTarget(
                     bundleID: id, name: item["name"] ?? id, path: path
                 )
-            }
+            })
             let quick = WCPathDiscovery.quickLaunchServicesRoots(
                 groupID: selectedGroup, knownPaths: Set(apps.map(\.path))
             )
@@ -105,12 +105,7 @@ final class WorseCleanerModel: ObservableObject {
                 // The database owns identities for exact UUID paths. Keep any
                 // additional MCM entries; never lose a real container when
                 // either catalog alone is incomplete.
-                var seen = Set<String>()
-                discovered = (quick.data + apps).filter {
-                    let path = $0.path
-                    let identity = WCPathDiscovery.containerIdentity(path)
-                    return seen.insert(identity).inserted
-                }
+                discovered = WCPathDiscovery.uniqueContainers(quick.data + apps)
             } else {
                 discovered = apps
             }
@@ -146,7 +141,8 @@ final class WorseCleanerModel: ObservableObject {
         guard !busy else { return }
         do {
             let target = try WCTarget(bundleID: "manual", name: "手动指定的 App", path: path)
-            if !apps.contains(where: { $0.path == target.path }) {
+            let identity = WCPathDiscovery.containerIdentity(target.path)
+            if !apps.contains(where: { WCPathDiscovery.containerIdentity($0.path) == identity }) {
                 apps.insert(target, at: 0)
             }
             status = "已添加容器，尚未验证访问权限，请点击扫描。"
@@ -191,9 +187,9 @@ final class WorseCleanerModel: ObservableObject {
                     let found = result.data
                     self.discoveredBundleRoots = result.bundles
                     self.discoveredLSStore = result.launchServicesStore
-                    let existing = Set(self.apps.map { WCPathDiscovery.containerIdentity($0.path) })
+                    var seen = Set(self.apps.map { WCPathDiscovery.containerIdentity($0.path) })
                     self.apps.append(contentsOf: found.filter {
-                        !existing.contains(WCPathDiscovery.containerIdentity($0.path))
+                        seen.insert(WCPathDiscovery.containerIdentity($0.path)).inserted
                     })
                     self.status = "\(result.incremental ? "增量" : "完整")扫描 \(result.scannedInodes) 个 inode，发现 \(found.count - result.extensionCount) 个 App、\(result.extensionCount) 个扩展容器。当前列表 \(self.apps.count) 项。"
                     if !result.completeBound {

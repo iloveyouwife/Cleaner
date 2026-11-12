@@ -107,11 +107,23 @@ int64_t worse_query(NSString *target, NSString *group, bool alt_flags, bool crea
         query_set_flags(query, 0x0000008000000000ULL);
     }
     
-    // Set up symlink
-    [files removeItemAtPath: caches error: nil];
-    if ([files createSymbolicLinkAtPath: caches withDestinationPath: target error: nil] == false) {
+    // Work only inside the dedicated App Group. If the current folder
+    // cannot be removed, leave it intact rather than forcing cleanup.
+    NSError *removeError = nil;
+    BOOL cacheExists = [files fileExistsAtPath:caches] ||
+        [files destinationOfSymbolicLinkAtPath:caches error:nil] != nil;
+    if (cacheExists && ![files removeItemAtPath:caches error:&removeError]) {
+        query_free(query);
         dlclose(mgr);
-        return -4; // Failed to create symlink
+        return -4;
+    }
+    if (![files createSymbolicLinkAtPath:caches withDestinationPath:target error:nil]) {
+        query_free(query);
+        dlclose(mgr);
+        // The original folder was removed successfully; restore the
+        // dedicated staging directory after a failed link creation.
+        clean_symlink(group);
+        return -4;
     }
     
     // Send our query over

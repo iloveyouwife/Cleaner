@@ -28,6 +28,12 @@ enum WCPathDiscovery {
             ? String(normalized.dropFirst("/private".count)) : normalized
     }
 
+    /// Deduplicate all sources by canonical /var and /private/var identity.
+    static func uniqueContainers(_ candidates: [WCTarget]) -> [WCTarget] {
+        var seen = Set<String>()
+        return candidates.filter { seen.insert(containerIdentity($0.path)).inserted }
+    }
+
     static func containerPresence(_ path: String) -> WCContainerPresence {
         var details = stat()
         if lstat(path, &details) == 0 {

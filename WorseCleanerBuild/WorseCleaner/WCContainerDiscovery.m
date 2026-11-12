@@ -102,17 +102,28 @@ NSString *WCFindLaunchServicesStoreQuick(void) {
             return cached;
         }
     }
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    NSTimeInterval lastAttempt = [saved[@"lsTriedAt"] respondsToSelector:@selector(doubleValue)]
+        ? [saved[@"lsTriedAt"] doubleValue] : 0;
+    if (lastAttempt > 0 && now >= lastAttempt &&
+        now - lastAttempt < kWCLSReverseRetry) return nil;
     fsid_t fsid = {0};
     uint64_t probe = 0;
     if (!WCProbeDataVolume(&fsid, &probe)) return nil;
     uint64_t inode = 0;
     NSString *found = WCFindRecentLSStore(fsid, probe + kWCInodeMargin, &inode,
                                           UINT64_MAX, 20);
-    if (found && indexPath) {
+    if (indexPath) {
         NSMutableDictionary *updated = saved ? [saved mutableCopy] : [NSMutableDictionary new];
-        updated[@"lsStore"] = found;
-        updated[@"lsInode"] = @(inode);
-        updated[@"lsTriedAt"] = @(NSDate.date.timeIntervalSince1970);
+        if (found) {
+            updated[@"lsStore"] = found;
+            updated[@"lsInode"] = @(inode);
+        } else {
+            [updated removeObjectForKey:@"lsStore"];
+            [updated removeObjectForKey:@"lsInode"];
+        }
+        // A negative lookup must also be throttled.
+        updated[@"lsTriedAt"] = @(now);
         [updated writeToFile:indexPath atomically:YES];
     }
     return found;

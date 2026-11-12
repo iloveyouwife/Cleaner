@@ -40,7 +40,8 @@ enum WCGrant {
             // EACCES is a filesystem permission failure, not a token failure.
             // Actual directory readability is separately enforced by the
             // existing scan/cleanup validators.
-            if preferredAlternative == nil { preferredAlternative = alternative }
+            // Remember the latest flag set that actually granted access.
+            preferredAlternative = alternative
             return handle
         }
         return lastError
