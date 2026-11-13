@@ -31,6 +31,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdio.h>
 #include "worse_query.h"
 
 typedef void *(*container_query_create_fn)(void);
@@ -97,7 +98,10 @@ static BOOL WQWriteJournal(NSString *path, NSDictionary *record) {
     NSData *data = [NSPropertyListSerialization dataWithPropertyList:record
                     format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
     if (!data || data.length > 16384) return WQStageFail(-12);
-    int fd = open(path.fileSystemRepresentation, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    // Only a complete, synchronized record becomes visible to recovery.
+    // An interrupted temporary write never changes Caches or the final journal.
+    NSString *temporary = [path stringByAppendingFormat:@".tmp-%@", NSUUID.UUID.UUIDString];
+    int fd = open(temporary.fileSystemRepresentation, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (fd < 0) return WQStageFail(-12);
     const uint8_t *bytes = data.bytes;
     NSUInteger done = 0;
@@ -107,12 +111,24 @@ static BOOL WQWriteJournal(NSString *path, NSDictionary *record) {
         if (n <= 0) break;
         done += (NSUInteger)n;
     }
-    BOOL ok = done == data.length && fsync(fd) == 0;
+    int syncResult = -1;
+    if (done == data.length) {
+        do { syncResult = fsync(fd); } while (syncResult != 0 && errno == EINTR);
+    }
     close(fd);
-    if (!ok) {
-        // Nothing has been moved yet. Remove only the journal we just created.
-        unlink(path.fileSystemRepresentation);
+    if (syncResult != 0 ||
+        renamex_np(temporary.fileSystemRepresentation, path.fileSystemRepresentation, RENAME_EXCL) != 0) {
+        // No directory has moved. Never overwrite or remove an existing transaction.
+        unlink(temporary.fileSystemRepresentation);
         return WQStageFail(-12);
+    }
+    // Best effort on filesystems that support directory synchronization.
+    int parent = open(path.stringByDeletingLastPathComponent.fileSystemRepresentation,
+                      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (parent >= 0) {
+        int result;
+        do { result = fsync(parent); } while (result != 0 && errno == EINTR);
+        close(parent);
     }
     return YES;
 }

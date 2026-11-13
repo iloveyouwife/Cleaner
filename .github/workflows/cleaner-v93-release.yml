@@ -1,0 +1,81 @@
+name: Build and publish Cleaner v93 stability update
+
+on:
+  push:
+    branches: ['release/v0.93.0']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cleaner-v93-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'iloveyouwife/Cleaner' && github.event.deleted == false
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode and generate project
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
+          xcodebuild -version
+          command -v xcodegen || brew install xcodegen
+          cd WorseCleanerBuild
+          xcodegen generate
+      - name: Verify source and protected UI
+        run: |
+          python3 WorseCleanerBuild/scripts/verify_source_guards.py
+          python3 WorseCleanerBuild/scripts/verify_stability_invariants.py
+      - name: Compile unsigned Release
+        run: |
+          set -euo pipefail
+          xcodebuild -project WorseCleanerBuild/WorseCleaner.xcodeproj \
+            -scheme WorseCleaner -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath "$PWD/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Run logic tests including journal and interrupted-read regressions
+        run: |
+          set -euo pipefail
+          simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
+          test -n "$simulator_id"
+          xcodebuild test -project WorseCleanerBuild/WorseCleaner.xcodeproj \
+            -scheme WorseCleaner -configuration Debug -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -derivedDataPath "$PWD/DerivedDataTests" \
+            -resultBundlePath "$PWD/cleaner-v93-unit-tests.xcresult" \
+            -parallel-testing-enabled NO -only-testing:CleanerUnitTests \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Package and verify v93 IPA
+        run: |
+          set -euo pipefail
+          app="DerivedData/Build/Products/Release-iphoneos/WorseCleaner.app"
+          test -f "$app/zh-Hans.lproj/InfoPlist.strings"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")" = '0.93.0'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")" = '93'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDevelopmentRegion' "$app/Info.plist")" = 'zh-Hans'
+          mkdir Payload
+          cp -R "$app" Payload/
+          zip -q -r Cleaner-v0.93.0-unsigned.ipa Payload
+          unzip -tq Cleaner-v0.93.0-unsigned.ipa
+          shasum -a 256 Cleaner-v0.93.0-unsigned.ipa > Cleaner-v0.93.0-unsigned.ipa.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cleaner-v0.93.0-unsigned-ipa
+          path: |
+            Cleaner-v0.93.0-unsigned.ipa
+            Cleaner-v0.93.0-unsigned.ipa.sha256
+          if-no-files-found: error
+      - name: Publish official v93 after build and logic checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/release/v0.93.0" --jq .object.sha)"
+          test "$current" = "$GITHUB_SHA"
+          gh release create v0.93.0 Cleaner-v0.93.0-unsigned.ipa Cleaner-v0.93.0-unsigned.ipa.sha256 \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title 'Cleaner v0.93.0' --notes-file WorseCleanerBuild/RELEASE_NOTES.md --latest

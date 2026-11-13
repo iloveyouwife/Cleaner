@@ -156,13 +156,9 @@ enum WCLaunchServices {
         var initial = stat()
         guard fstat(fd, &initial) == 0, (initial.st_mode & S_IFMT) == S_IFREG,
               initial.st_size >= 4096, initial.st_size <= Int64(maximumBytes) else { return nil }
-        var bytes = Data()
-        var buffer = [UInt8](repeating: 0, count: 65_536)
-        while bytes.count < Int(initial.st_size) {
-            let count = read(fd, &buffer, min(buffer.count, Int(initial.st_size) - bytes.count))
-            if count <= 0 { return nil }
-            bytes.append(contentsOf: buffer.prefix(count))
-        }
+        guard let bytes = readStoreBytes(byteCount: Int(initial.st_size), readChunk: { buffer, count in
+            Darwin.read(fd, &buffer, count)
+        }) else { return nil }
         var after = stat()
         guard fstat(fd, &after) == 0, initial.st_ino == after.st_ino,
               initial.st_size == after.st_size,
@@ -173,6 +169,25 @@ enum WCLaunchServices {
         else { return nil }
         return WCLaunchServicesRead(snapshot: snapshot, groupID: groupID,
                                     storePath: storePath, stamp: WCPathDiscovery.stamp(from: after))
+    }
+
+    // Reads may be interrupted before producing bytes. Retry only EINTR;
+    // EOF, other errors and invalid read lengths still reject this snapshot.
+    // The injected reader lets unit tests cover those paths without grants.
+    static func readStoreBytes(
+        byteCount: Int, readChunk: (inout [UInt8], Int) -> Int
+    ) -> Data? {
+        guard byteCount >= 0, byteCount <= maximumBytes else { return nil }
+        var bytes = Data()
+        var buffer = [UInt8](repeating: 0, count: 65_536)
+        while bytes.count < byteCount {
+            let requested = min(buffer.count, byteCount - bytes.count)
+            let count = readChunk(&buffer, requested)
+            if count < 0 && errno == EINTR { continue }
+            guard count > 0, count <= requested else { return nil }
+            bytes.append(contentsOf: buffer.prefix(count))
+        }
+        return bytes
     }
 
     // Kept internal so a binary-fixture test can exercise both known and

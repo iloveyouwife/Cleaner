@@ -143,6 +143,45 @@ final class StagingRecoveryTests: XCTestCase {
         }
     }
 
+    func testAbandonedTemporaryJournalDoesNotBlockANewTransaction() throws {
+        try withFixture { _, caches, target in
+            let fragment = URL(fileURLWithPath: caches.path + ".wq-transaction.plist.tmp-interrupted")
+            try Data("partial".utf8).write(to: fragment)
+            XCTAssertTrue(WQCacheStageRecover(caches.path))
+            XCTAssertTrue(WQCacheStageBegin(caches.path, target.path))
+            XCTAssertTrue(WQCacheStageEnd(caches.path, target.path))
+            XCTAssertEqual(try String(contentsOf: caches.appendingPathComponent("original.txt"), encoding: .utf8), "original")
+            XCTAssertEqual(try String(contentsOf: fragment, encoding: .utf8), "partial")
+        }
+    }
+
+    func testExistingInvalidJournalIsPreservedWithoutMovingCaches() throws {
+        try withFixture { _, caches, target in
+            let journal = URL(fileURLWithPath: caches.path + ".wq-transaction.plist")
+            let original = Data("do-not-overwrite".utf8)
+            try original.write(to: journal)
+            XCTAssertFalse(WQCacheStageBegin(caches.path, target.path))
+            XCTAssertEqual(try Data(contentsOf: journal), original)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: caches.path + ".wq-preserved"))
+            XCTAssertEqual(try String(contentsOf: caches.appendingPathComponent("original.txt"), encoding: .utf8), "original")
+        }
+    }
+
+    func testCommittedJournalIsCompleteAndLeavesNoTemporaryFile() throws {
+        try withFixture { _, caches, target in
+            XCTAssertTrue(WQCacheStageBegin(caches.path, target.path))
+            let journal = URL(fileURLWithPath: caches.path + ".wq-transaction.plist")
+            let record = try XCTUnwrap(try PropertyListSerialization.propertyList(
+                from: Data(contentsOf: journal), options: [], format: nil
+            ) as? [String: Any])
+            XCTAssertEqual(record["target"] as? String, target.path)
+            XCTAssertEqual((record["version"] as? NSNumber)?.intValue, 1)
+            let names = try FileManager.default.contentsOfDirectory(atPath: caches.deletingLastPathComponent().path)
+            XCTAssertFalse(names.contains { $0.hasPrefix("Caches.wq-transaction.plist.tmp-") })
+            XCTAssertTrue(WQCacheStageEnd(caches.path, target.path))
+        }
+    }
+
     func testFailedSymlinkCreationRollsBackOriginalData() throws {
         try withFixture { _, caches, _ in
             XCTAssertFalse(WQCacheStageBegin(caches.path, String(repeating: "x", count: 8192)))
