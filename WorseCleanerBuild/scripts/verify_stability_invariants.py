@@ -29,3 +29,12 @@ for step in ["Verify source safety invariants", "Compile unsigned", "Verify sear
 assert "if: success() && github.ref == 'refs/heads/main'" in release
 assert '"$current_main" != "$GITHUB_SHA"' in release
 print("PASS release follows all required checks and refuses superseded main commits")
+
+# Catch lossy text conversions that still produce valid ASCII/UTF-8 source.
+for source in src.rglob("*"):
+    if source.suffix not in {".swift", ".m", ".h", ".strings"}:
+        continue
+    contents = source.read_text(encoding="utf-8")
+    assert "\ufffd" not in contents, "Replacement character in source: " + str(source)
+    assert not re.search(r'"[^"\n]*\?{3,}[^"\n]*"', contents), "Damaged message text: " + str(source)
+print("PASS application source text contains no lossy replacement messages")
