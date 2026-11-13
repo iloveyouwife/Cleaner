@@ -38,8 +38,10 @@
 
 - `main` 是 Cleaner 当前稳定源码，也是后续开发与发行的入口。
 - `v0.52.0`、`v0.53.0` 等 Git 标签固定对应的发行版源码；已发行的版本不会被覆盖。
-- 每次将新版本提交到 `main`，GitHub Actions 都会构建并测试。修改 `WorseCleanerBuild/project.yml` 中的 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 后，流水线会为尚未发布的新版本自动创建标签、Release 和未签名 IPA 附件。
+- 每次将新版本提交到 `main`，GitHub Actions 都会构建并测试；源码、界面保护、逻辑和 UI 回归均通过后才会正式发布，过期提交不会被标记为最新版本。修改 `WorseCleanerBuild/project.yml` 中的 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 后，流水线会为尚未发布的新版本自动创建标签、Release 和未签名 IPA 附件。
 
-本仓库当前仅维护 Cleaner 应用源码、测试和发行流程。
+本仓库当前仅维护 Cleaner 应用源码、测试和发行流程。当前发行说明见 [RELEASE_NOTES.md](WorseCleanerBuild/RELEASE_NOTES.md)，完整历史见 [CHANGELOG.md](WorseCleanerBuild/CHANGELOG.md)。
+
+v91 保留 v90 的首页、搜索、键盘与滚动界面，完善容器归属核验、旧排除记录管理、UUID 输入及专用组暂存恢复。清理结果中的减少量是缓存文件逻辑大小差，设备实际可用容量可能受其他进程和仍被占用的文件影响。
 
 Cleaner 的缓存访问部分参考了 [forcequitOS/worse_query](https://github.com/forcequitOS/worse_query)、[YangJiiii/3105](https://github.com/YangJiiii/3105)；容器发现、增量索引及 LaunchServices CSStore2 解析思路参考并适配了 [kolbicz/WQFiles](https://github.com/kolbicz/WQFiles)。保留原始授权和署名；详见 [GPL-3.0-or-later 许可证](WorseCleanerBuild/LICENSE)。

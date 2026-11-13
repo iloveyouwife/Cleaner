@@ -147,7 +147,7 @@ final class CleanerUnitTests: XCTestCase {
                 )
             }
         )
-        XCTAssertEqual(verified?.freedBytes, 110)
+        XCTAssertEqual(verified?.logicalByteReduction, 110)
         XCTAssertEqual(verified?.removedItemCount, 2)
     }
 
@@ -397,7 +397,7 @@ final class CleanerUnitTests: XCTestCase {
         XCTAssertEqual(visited, [["Library", "Caches"], ["tmp"]])
         XCTAssertEqual(result.removedItemCount, 1)
         XCTAssertEqual(result.failedItemCount, 1)
-        XCTAssertEqual(result.freedBytes, 3)
+        XCTAssertEqual(result.logicalByteReduction, 3)
         XCTAssertEqual(result.after.cacheBytes, 0)
         XCTAssertEqual(result.after.temporaryBytes, 5)
         XCTAssertFalse(fm.fileExists(atPath: cacheFile.path))
@@ -423,7 +423,7 @@ final class CleanerUnitTests: XCTestCase {
         )
         XCTAssertEqual(result.removedItemCount, 0)
         XCTAssertEqual(result.failedItemCount, 1)
-        XCTAssertEqual(result.freedBytes, 0)
+        XCTAssertEqual(result.logicalByteReduction, 0)
         XCTAssertTrue(fm.fileExists(atPath: file.path))
     }
 

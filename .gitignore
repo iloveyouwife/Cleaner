@@ -1,0 +1,11 @@
+# XcodeGen output and local build/test artifacts
+WorseCleanerBuild/WorseCleaner.xcodeproj/
+DerivedData*/
+Payload/
+*.ipa
+*.xcresult/
+ui-screenshots/
+ui-menu-screenshots/
+**/xcuserdata/
+*.xcuserstate
+__pycache__/

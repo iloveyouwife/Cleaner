@@ -33,6 +33,9 @@
 // Exposed for isolated, read/write-free-to-target staging regression tests.
 // Never call these helpers for foreign App containers; worse_query only passes
 // its own signed App Group Library/Caches staging path.
+// Recover only journaled transactions; unknown data is always preserved.
+BOOL WQCacheStageRecover(NSString *caches);
+int64_t WQCacheStageLastError(void);
 BOOL WQCacheStageBegin(NSString *caches, NSString *target);
 BOOL WQCacheStageEnd(NSString *caches, NSString *target);
 

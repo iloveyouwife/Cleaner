@@ -92,7 +92,11 @@ enum WCPathDiscovery {
         }
         guard (details.st_mode & S_IFMT) == S_IFREG,
               details.st_size >= 4096, details.st_size <= 64 * 1024 * 1024 else { return nil }
-        return WCLaunchServicesStamp(
+        return stamp(from: details)
+    }
+
+    static func stamp(from details: stat) -> WCLaunchServicesStamp {
+        WCLaunchServicesStamp(
             device: UInt64(details.st_dev), inode: UInt64(details.st_ino),
             size: details.st_size,
             modifiedSeconds: Int64(details.st_mtimespec.tv_sec),
@@ -108,7 +112,7 @@ enum WCPathDiscovery {
     static func quickRecheckApps(
         existing: [WCTarget], groupID: String, storePath: String?,
         previousStamp: WCLaunchServicesStamp?
-    ) -> (apps: [WCTarget], changed: Bool, storePath: String?) {
+    ) -> (apps: [WCTarget], changed: Bool, storePath: String?, read: WCLaunchServicesRead?) {
         let currentStamp = launchServicesStamp(storePath: storePath, groupID: groupID)
         let storeChanged = !stampIsCurrent(previousStamp, currentStamp)
         var error: NSString?
@@ -126,7 +130,7 @@ enum WCPathDiscovery {
             existing: existing, candidates: (updatedIndex?.data ?? []) + mcm,
             presence: containerPresence
         )
-        return (merged.apps, storeChanged || merged.changed, updatedIndex?.launchServicesStore)
+        return (merged.apps, storeChanged || merged.changed, updatedIndex?.launchServicesStore, updatedIndex?.read)
     }
     // Bundle/Application may be on a different volume, where an unprivileged
     // app cannot create an inode probe. Names remain best-effort; a missing
@@ -140,12 +144,13 @@ enum WCPathDiscovery {
     // full-volume inode walk; retain enumerateRoots() as an explicit fallback.
     static func quickLaunchServicesRoots(
         groupID: String, knownPaths: Set<String>
-    ) -> (data: [WCTarget], launchServicesStore: String, diagnostics: String)? {
+    ) -> (data: [WCTarget], launchServicesStore: String, diagnostics: String, read: WCLaunchServicesRead)? {
         guard !groupID.isEmpty, let store = WCFindLaunchServicesStoreQuick(),
-              let snapshot = WCLaunchServices.load(
+              let read = WCLaunchServices.loadValidated(
                 storePath: store, groupID: groupID, knownPaths: knownPaths,
                 allowUnmatched: true
               ) else { return nil }
+        let snapshot = read.snapshot
 
         var targets: [WCTarget] = []
         var removed = 0
@@ -197,7 +202,7 @@ enum WCPathDiscovery {
             }
         }
         return (targets, store,
-                "\(snapshot.diagnostics) 已排除 \(removed) 条无效容器记录，沿用已验证 inode 索引 \(reused) 项。")
+                "\(snapshot.diagnostics) 已排除 \(removed) 条无效容器记录，沿用已验证 inode 索引 \(reused) 项。", read)
     }
 
     static func enumerateRoots(

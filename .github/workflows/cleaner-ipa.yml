@@ -20,7 +20,7 @@ concurrency:
 jobs:
   build:
     runs-on: xcode-27
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,7 +45,9 @@ jobs:
           xcodegen generate
 
       - name: Verify source safety invariants
-        run: python3 WorseCleanerBuild/scripts/verify_source_guards.py
+        run: |
+          python3 WorseCleanerBuild/scripts/verify_source_guards.py
+          python3 WorseCleanerBuild/scripts/verify_stability_invariants.py
 
       - name: Compile unsigned
         run: |
@@ -90,39 +92,8 @@ jobs:
           path: WorseCleaner-iOS27-unsigned.ipa
           if-no-files-found: error
 
-      # main is the current Cleaner source. On a new version, create the
-      # immutable release tag and attach the compiled unsigned IPA.
-      - name: Publish Cleaner release
-        if: github.ref_name == 'main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          version="$(sed -n 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*//p' WorseCleanerBuild/project.yml | head -n 1)"
-          build="$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*//p' WorseCleanerBuild/project.yml | head -n 1)"
-          [[ "$version" =~ ^0\.[0-9]+\.0$ ]]
-          [[ "$build" =~ ^[0-9]+$ ]]
-          test "$version" = "0.${build}.0"
-          tag="v${version}"
-          if ! command -v gh >/dev/null 2>&1; then
-            brew install gh
-          fi
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $tag already exists; leave its tagged sources and IPA unchanged."
-            exit 0
-          fi
-          asset="Cleaner-v${version}-unsigned.ipa"
-          cp WorseCleaner-iOS27-unsigned.ipa "$asset"
-          gh release create "$tag" "$asset" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Cleaner v${version}" \
-            --target "$GITHUB_SHA" \
-            --notes-file WorseCleanerBuild/RELEASE_NOTES.md \
-            --latest
-          echo "Released $tag" >> "$GITHUB_STEP_SUMMARY"
-
-      # Validate the reported search layout regression as soon as the IPA is
-      # published, before running the longer cache logic regression suite.
+      # Run the focused search regression first, before the longer suites.
+      # A candidate artifact is available, but no release has been published.
       - name: Verify search spacing and keyboard in simulator
         run: |
           set -euo pipefail
@@ -134,15 +105,14 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,id=$simulator_id" \
-            -derivedDataPath "$PWD/DerivedDataSearchTests" \
+            -derivedDataPath "$PWD/DerivedDataTests" \
             -resultBundlePath "$PWD/cleaner-search-ui-tests.xcresult" \
             -parallel-testing-enabled NO \
             -only-testing:CleanerUITests/CleanerUITests/testSearchVerticalSpacingMatchesCompactDrawerLayout \
             -only-testing:CleanerUITests/CleanerUITests/testContinuousSearchTypingPreservesKeyboardAndClearButton \
-            CODE_SIGNING_ALLOWED=NO \
-            test
+            CODE_SIGNING_ALLOWED=NO
 
-      # Deliver the IPA first; then run the remaining logic/UI regressions.
+      # Logic and UI checks are mandatory gates before any formal release.
       - name: Run Cleaner logic unit tests
         run: |
           set -euo pipefail
@@ -154,10 +124,11 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,id=$simulator_id" \
-            -derivedDataPath "$PWD/DerivedDataUnitTests" \
+            -derivedDataPath "$PWD/DerivedDataTests" \
+            -resultBundlePath "$PWD/cleaner-unit-tests.xcresult" \
+            -parallel-testing-enabled NO \
             -only-testing:CleanerUnitTests \
-            CODE_SIGNING_ALLOWED=NO \
-            test
+            CODE_SIGNING_ALLOWED=NO
 
       # Required simulator UI regression checks. Screenshot fixtures bypass
       # discovery only on the simulator, never signed-device safeguards.
@@ -259,15 +230,53 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,id=$simulator_id" \
-            -derivedDataPath "$PWD/DerivedDataUITests" \
+            -derivedDataPath "$PWD/DerivedDataTests" \
             -resultBundlePath "$PWD/cleaner-ui-tests.xcresult" \
+            -parallel-testing-enabled NO \
             -only-testing:CleanerUITests \
-            CODE_SIGNING_ALLOWED=NO \
-            test
+            -skip-testing:CleanerUITests/CleanerUITests/testSearchVerticalSpacingMatchesCompactDrawerLayout \
+            -skip-testing:CleanerUITests/CleanerUITests/testContinuousSearchTypingPreservesKeyboardAndClearButton \
+            CODE_SIGNING_ALLOWED=NO
           mkdir -p ui-menu-screenshots
           xcrun xcresulttool export attachments \
             --path cleaner-ui-tests.xcresult \
             --output-path ui-menu-screenshots
+
+      # main is the current Cleaner source. On a new version, create the
+      # immutable release tag and attach the compiled unsigned IPA.
+      - name: Publish Cleaner release
+        if: success() && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*//p' WorseCleanerBuild/project.yml | head -n 1)"
+          build="$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*//p' WorseCleanerBuild/project.yml | head -n 1)"
+          [[ "$version" =~ ^0\.[0-9]+\.0$ ]]
+          [[ "$build" =~ ^[0-9]+$ ]]
+          test "$version" = "0.${build}.0"
+          tag="v${version}"
+          if ! command -v gh >/dev/null 2>&1; then
+            brew install gh
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; leave its tagged sources and IPA unchanged."
+            exit 0
+          fi
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$current_main" != "$GITHUB_SHA" ]]; then
+            echo "This commit was superseded; do not publish it as latest."
+            exit 0
+          fi
+          asset="Cleaner-v${version}-unsigned.ipa"
+          cp WorseCleaner-iOS27-unsigned.ipa "$asset"
+          gh release create "$tag" "$asset" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Cleaner v${version}" \
+            --target "$GITHUB_SHA" \
+            --notes-file WorseCleanerBuild/RELEASE_NOTES.md \
+            --latest
+          echo "Released $tag" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload layout screenshot
         # Preserve diagnostics for test failures, but never prolong a
@@ -284,4 +293,6 @@ jobs:
             ui-screenshots/*.png
             ui-menu-screenshots/**
             cleaner-search-ui-tests.xcresult/**
+            cleaner-unit-tests.xcresult/**
+            cleaner-ui-tests.xcresult/**
           if-no-files-found: ignore

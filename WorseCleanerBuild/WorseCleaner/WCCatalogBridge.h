@@ -6,5 +6,6 @@ NS_ASSUME_NONNULL_BEGIN
 /// Each dictionary contains bundleID, name, path.
 NSArray<NSDictionary<NSString *, NSString *> *> *WCEnumerateApplicationContainers(NSString * _Nullable * _Nullable error);
 NSString * _Nullable WCLookupApplicationName(NSString *bundleID);
+NSString * _Nullable WCLookupApplicationDataContainer(NSString *bundleID);
 
 NS_ASSUME_NONNULL_END

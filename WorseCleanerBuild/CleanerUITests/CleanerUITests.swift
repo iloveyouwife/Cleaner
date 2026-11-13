@@ -103,6 +103,29 @@ final class CleanerUITests: XCTestCase {
         capture("search-bulk-deselect-preserves-hidden")
     }
 
+    func testExcludedRecordsRemainRestorableAfterDiscoveryIsCleared() {
+        let app = launchPreview(selected: true)
+        openMenu("选择操作", in: app)
+        let exclude = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "排除选中的")).firstMatch
+        XCTAssertTrue(exclude.waitForExistence(timeout: 5))
+        exclude.tap()
+        XCTAssertTrue(app.staticTexts["已选择 0 项"].waitForExistence(timeout: 5))
+        // The unsigned fixture has no signed group. Refresh clears discovery,
+        // while preserving the two explicit exclusion records, with no scan.
+        app.buttons["刷新 App 列表"].tap()
+        XCTAssertTrue(app.buttons["打开高级设置"].waitForExistence(timeout: 10))
+        openMenu("选择操作", in: app)
+        app.buttons["管理已排除 App（2）"].tap()
+        XCTAssertTrue(app.navigationBars["管理已排除 App"].waitForExistence(timeout: 5))
+        let restore = app.buttons["全部恢复"]
+        XCTAssertTrue(restore.waitForExistence(timeout: 5))
+        restore.tap()
+        XCTAssertTrue(app.staticTexts["暂无已排除 App"].waitForExistence(timeout: 5))
+        app.buttons["完成"].tap()
+        openMenu("选择操作", in: app)
+        XCTAssertTrue(app.buttons["管理已排除 App"].waitForExistence(timeout: 5))
+    }
+
     func testSortMenu() {
         let app = launchPreview()
         openMenu("排序", in: app)
@@ -134,8 +157,7 @@ final class CleanerUITests: XCTestCase {
 
     func testSearchDrawerScrollInteraction() {
         let app = launchPreview()
-        // Capture all three states using the OS search drawer; do not manually
-        // animate the toolbar or replace the native search field.
+        // Capture the persistent search field before and after List scrolling.
         capture("search-drawer-at-top")
         app.swipeUp()
         capture("search-drawer-after-scroll")

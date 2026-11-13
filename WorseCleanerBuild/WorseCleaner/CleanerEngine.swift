@@ -43,6 +43,18 @@ enum WCScanExclusions {
     static func excludedTargets(_ candidates: [WCTarget], excludedPaths: Set<String>) -> [WCTarget] {
         filter(candidates, excludedPaths: excludedPaths, includeExcluded: true)
     }
+
+    /// Keep saved exclusions manageable even when discovery cannot see an App.
+    /// Reuse the existing management rows; never infer that an unknown App was uninstalled.
+    static func managementTargets(_ candidates: [WCTarget], excludedPaths: Set<String>) -> [WCTarget] {
+        let visible = excludedTargets(candidates, excludedPaths: excludedPaths)
+        let known = Set(visible.map { WCPathDiscovery.containerIdentity($0.path) })
+        let missing = normalizedPaths(excludedPaths).subtracting(known).sorted().compactMap { path in
+            try? WCTarget(bundleID: URL(fileURLWithPath: path).lastPathComponent,
+                          name: "未发现的 App 容器", path: path)
+        }
+        return visible + missing
+    }
 }
 
 struct WCInspection {
@@ -55,6 +67,7 @@ struct WCInspection {
 enum WCIdentitySource: String {
     case launchServices = "LaunchServices"
     case metadata = "元数据"
+    case catalog = "容器目录"
     case savedState = "保存状态"
     case preferences = "偏好文件"
     case unresolved = "未识别"
@@ -66,6 +79,7 @@ enum WCFailure: LocalizedError {
     case unavailable(Int64)
     case inaccessible(String, Int32)
     case noCacheDirectories
+    case unresolvedManualContainer
 
     var errorDescription: String? {
         switch self {
@@ -74,9 +88,22 @@ enum WCFailure: LocalizedError {
         case .noAppGroup:
             return "当前签名未提供所选 App Group 的访问权限。请检查已签名 IPA 的 entitlements 和 provisioning profile。"
         case .unavailable(let code):
+            switch code {
+            case -9:
+                return "?? App Group ???????????????Caches.wq-preserved??????????????????????"
+            case -10:
+                return "?? App Group ?????????????????????????????"
+            case -11:
+                return "?? App Group ?????????????????????????????????"
+            case -12:
+                return "?? App Group ???????????????????????????????"
+            default: break
+            }
             return "worse_query 未能取得权限（返回码 \(code)）。不执行扫描或删除。"
         case .inaccessible(let item, let code):
             return "\(item) 无法读取（errno=\(code)）。本次操作已停止，不能按 0 KB 处理。"
+        case .unresolvedManualContainer:
+            return "无法根据 UUID 唯一确认 App 或扩展容器，请填写来源明确的完整路径。"
         case .noCacheDirectories:
             return "目标容器的 Library/Caches 与 tmp 都不存在，不执行删除。"
         }
@@ -227,10 +254,10 @@ enum WCFileAccess {
         knownNames: [String: String]
     ) -> WCTarget? {
         guard isBundleIdentifier(bundleID) else { return nil }
-        let localized = WCLookupApplicationName(bundleID)
         let name = WCAppNames.displayName(for: bundleID, names: knownNames)
-            ?? (localized?.isEmpty == false ? localized : nil)
-            ?? (hint.isEmpty ? bundleID : hint)
+            ?? WCLookupApplicationName(bundleID)
+            ?? (hint.isEmpty ? nil : hint)
+            ?? bundleID
         return try? WCTarget(bundleID: bundleID, name: name, path: target.path)
     }
 
@@ -271,64 +298,64 @@ enum WCFileAccess {
         _ target: WCTarget, knownNames: [String: String],
         knownContainers: [String: String]
     ) -> (WCTarget, WCIdentitySource, Int32?) {
-        // Highest-confidence route: CSStore2 explicitly binds the exact data
-        // container UUID path to an installed app/extension Bundle ID.
         let normalized = target.path.hasPrefix("/var/")
             ? "/private" + target.path : target.path
-        if let id = knownContainers[normalized],
-           let resolved = resolvedTarget(target, bundleID: id, knownNames: knownNames) {
+        let catalogID = knownContainers[normalized]
+        let originalID = isBundleIdentifier(target.bundleID) ? target.bundleID : nil
+        func unknown() -> WCTarget {
+            let uuid = URL(fileURLWithPath: target.path).lastPathComponent
+            let title = target.path.contains("/PluginKitPlugin/") ? "扩展容器 " : "App 容器 "
+            return (try? WCTarget(bundleID: "容器 " + String(uuid.prefix(8)),
+                                  name: title + String(uuid.prefix(8)), path: target.path)) ?? target
+        }
+
+        // An exact LS path mapping and the original MCM/validated identity are
+        // ownership evidence. A conflict must not silently relabel a container.
+        if let catalogID, isBundleIdentifier(catalogID) {
+            guard let id = WCIdentityEvidence.agreedIdentifier([catalogID, originalID]),
+                  let resolved = resolvedTarget(target, bundleID: id, knownNames: knownNames)
+            else { return (unknown(), .unresolved, nil) }
             return (resolved, .launchServices, nil)
         }
-        // 3105's first route: MCMMetadataIdentifier and MCMMetadataInfo.
+
         let metadata = metadataPlist(target)
-        if let plist = metadata.plist {
-            let identifier = (plist["MCMMetadataIdentifier"] as? String ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let info = plist["MCMMetadataInfo"] as? [String: Any] ?? [:]
-            let hint = (info["CFBundleDisplayName"] as? String)
-                ?? (info["CFBundleName"] as? String) ?? ""
-            if let resolved = resolvedTarget(
-                target, bundleID: identifier, hint: hint, knownNames: knownNames
-            ) {
-                return (resolved, .metadata, metadata.code)
+        let identifier = (metadata.plist?["MCMMetadataIdentifier"] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let metadataID = isBundleIdentifier(identifier) ? identifier : nil
+        if originalID != nil || metadataID != nil {
+            guard let id = WCIdentityEvidence.agreedIdentifier([originalID, metadataID]) else {
+                return (unknown(), .unresolved, metadata.code)
+            }
+            let info = metadata.plist?["MCMMetadataInfo"] as? [String: Any] ?? [:]
+            let hint = metadataID == id
+                ? ((info["CFBundleDisplayName"] as? String) ?? (info["CFBundleName"] as? String) ?? "")
+                : (target.name == target.bundleID ? "" : target.name)
+            if let resolved = resolvedTarget(target, bundleID: id, hint: hint, knownNames: knownNames) {
+                return (resolved, metadataID != nil ? .metadata : .catalog, metadata.code)
             }
         }
 
-        // 3105's second route: a saved-state name contains the hosting Bundle ID.
-        let savedRoot = target.path + "/Library/Saved Application State"
-        let savedEntries = (try? FileManager.default.contentsOfDirectory(atPath: savedRoot)) ?? []
-        let savedCandidates = Array(Set(savedEntries.compactMap { name -> String? in
-            guard name.hasSuffix(".savedState") else { return nil }
-            let identifier = String(name.dropLast(".savedState".count))
-            return isBundleIdentifier(identifier) ? identifier : nil
-        })).sorted()
-        for identifier in savedCandidates {
-            if WCLookupApplicationName(identifier) != nil || savedCandidates.count == 1,
-               let resolved = resolvedTarget(target, bundleID: identifier,
-                                             knownNames: knownNames) {
-                return (resolved, .savedState, metadata.code)
+        // A filename or the existence of another installed App is not proof
+        // of ownership. Keep these fallbacks only when LS confirms the exact
+        // data-container path for the candidate, including /var aliases.
+        for (directory, suffix, source) in [
+            ("Library/Saved Application State", ".savedState", WCIdentitySource.savedState),
+            ("Library/Preferences", ".plist", WCIdentitySource.preferences)
+        ] {
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: target.path + "/" + directory)) ?? []
+            let candidates = Set(entries.compactMap { name -> String? in
+                guard name.hasSuffix(suffix) else { return nil }
+                let id = String(name.dropLast(suffix.count))
+                return isBundleIdentifier(id) ? id : nil
+            })
+            if let id = WCIdentityEvidence.pathConfirmedIdentifier(
+                candidates, containerPath: target.path,
+                lookup: { WCLookupApplicationDataContainer($0) }
+            ), let resolved = resolvedTarget(target, bundleID: id, knownNames: knownNames) {
+                return (resolved, source, metadata.code)
             }
         }
-
-        // Third route from 3105: Preferences/*.plist. Only accept a candidate
-        // when LaunchServices confirms its name, or it is the sole non-Apple
-        // preference identifier. Never infer an identity from generic SDK files.
-        let prefsRoot = target.path + "/Library/Preferences"
-        let preferenceEntries = (try? FileManager.default.contentsOfDirectory(atPath: prefsRoot)) ?? []
-        let preferenceCandidates = Array(Set(preferenceEntries.compactMap { name -> String? in
-            guard name.hasSuffix(".plist") else { return nil }
-            let identifier = String(name.dropLast(".plist".count))
-            guard isBundleIdentifier(identifier), !identifier.hasPrefix("com.apple.") else { return nil }
-            return identifier
-        })).sorted()
-        for identifier in preferenceCandidates {
-            if WCLookupApplicationName(identifier) != nil || preferenceCandidates.count == 1,
-               let resolved = resolvedTarget(target, bundleID: identifier,
-                                             knownNames: knownNames) {
-                return (resolved, .preferences, metadata.code)
-            }
-        }
-        return (target, .unresolved, metadata.code)
+        return (unknown(), .unresolved, metadata.code)
     }
 
     static func clean(_ target: WCTarget, groupID: String) throws -> LimitedCleanerResult {

@@ -12,6 +12,21 @@ struct WCLaunchServicesSnapshot {
     let diagnostics: String
 }
 
+/// An immutable read result may be reused by the immediately following scan.
+/// A missing stamp, changed file, changed group or changed path always invalidates it.
+struct WCLaunchServicesRead {
+    let snapshot: WCLaunchServicesSnapshot
+    let groupID: String
+    let storePath: String
+    let stamp: WCLaunchServicesStamp
+
+    func snapshotIfCurrent(groupID: String, storePath: String?, stamp: WCLaunchServicesStamp?) -> WCLaunchServicesSnapshot? {
+        guard self.groupID == groupID, self.storePath == storePath,
+              WCPathDiscovery.stampIsCurrent(self.stamp, stamp) else { return nil }
+        return snapshot
+    }
+}
+
 enum WCLaunchServices {
     private static let maximumBytes = 64 * 1024 * 1024
     private static let maximumID: UInt32 = 0x0100_0000
@@ -113,6 +128,14 @@ enum WCLaunchServices {
         storePath: String?, groupID: String, knownPaths: Set<String>,
         allowUnmatched: Bool = false
     ) -> WCLaunchServicesSnapshot? {
+        loadValidated(storePath: storePath, groupID: groupID,
+                      knownPaths: knownPaths, allowUnmatched: allowUnmatched)?.snapshot
+    }
+
+    static func loadValidated(
+        storePath: String?, groupID: String, knownPaths: Set<String>,
+        allowUnmatched: Bool = false
+    ) -> WCLaunchServicesRead? {
         guard let storePath, validStore(storePath),
               WCFileAccess.accessibleGroups().contains(groupID) else { return nil }
         let cacheRoot = (storePath as NSString).deletingLastPathComponent
@@ -145,7 +168,11 @@ enum WCLaunchServices {
               initial.st_size == after.st_size,
               initial.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
               initial.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec else { return nil }
-        return parse(bytes, knownPaths: knownPaths, allowUnmatched: allowUnmatched)
+        guard WCPathDiscovery.stamp(from: initial) == WCPathDiscovery.stamp(from: after),
+              let snapshot = parse(bytes, knownPaths: knownPaths, allowUnmatched: allowUnmatched)
+        else { return nil }
+        return WCLaunchServicesRead(snapshot: snapshot, groupID: groupID,
+                                    storePath: storePath, stamp: WCPathDiscovery.stamp(from: after))
     }
 
     // Kept internal so a binary-fixture test can exercise both known and

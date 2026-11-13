@@ -11,7 +11,7 @@
 3. **权限检查：** 读取安装后实际生效的 App Group entitlement，要求用户确认所选组是 Cleaner 独占组；获取目标容器的临时访问权限并实际测试路径能否打开，沙盒仍拒绝时尝试另一套查询参数。之后继续执行原有的目录可读性验证，仅在缓存目录因 `EPERM` 被拒绝时额外尝试 `Caches` 或 `tmp` 的路径限定访问授权。
 4. **受限扫描：** 只统计 `/var/mobile/Containers/Data/Application/<UUID>/Library/Caches` 和同一容器内的 `tmp`。无法读取时报告错误，不以 `0 KB` 代替权限失败。
 5. **选择性清理：** 仅在扫描成功且用户明确勾选、确认后操作；只删除上述缓存目录内的内容，保留根目录、Documents 和 App 本身。使用描述符相对操作及 `O_NOFOLLOW` 限制路径穿越。
-6. **界面功能：** 搜索、排序、选择与排除 App；高级设置、手动发现与诊断；可选 Apple 商店公开名称查询。界面使用 SwiftUI 原生菜单和 SF Symbols；顶部搜索栏随列表滚动由系统自动收起，回到顶部下拉可重新显示。滑动列表或轻点列表内容可以收起键盘并保留搜索结果，系统“取消”用于退出搜索。App 列表优先保留右侧缓存容量及选择状态的空间，过长名称最多两行、Bundle ID 中间省略；无障碍大字体下容量单独成行。
+6. **界面功能：** 搜索、排序、选择与排除 App；高级设置、手动发现与诊断；可选 Apple 商店公开名称查询。界面使用 SwiftUI 原生菜单和 SF Symbols；搜索输入框与动态列表保持独立身份，随实际列表滚动收起，回到顶部下拉可重新显示。滑动列表或轻点列表内容可以收起键盘并保留搜索结果，圆形关闭按钮退出并清空搜索。App 列表优先保留右侧缓存容量及选择状态的空间，过长名称最多两行、Bundle ID 中间省略；无障碍大字体下容量单独成行。
 
 ## 签名和 App Group
 
@@ -23,15 +23,17 @@
 2. 使用有效证书签署 IPA，确认 App Group entitlement 随签名实际生效。
 3. 在高级设置中选择可访问的专用组，并确认此组**没有被其他 App 共享使用**。
 
-**重要风险：** v90 的授权暂存仍会临时替换独占 App Group 中的缓存目录入口，但会先将现有目录备份到同组位置，并在请求结束后尝试恢复。异常恢复会拒绝继续，不保证强制结束进程或系统崩溃时完全没有遗留暂存目录。误用其他 App 共享的组可能影响它们的数据。不要将共享组用于本工具。
+授权暂存会临时替换独占 App Group 中的缓存目录入口。v91 先持久化事务记录，再将现有目录移到同组备份位置；请求结束后恢复。后续已授权请求前可恢复记录、父目录及原目录身份均匹配的中断事务。来源不明的旧版备份、损坏记录或新目录冲突不会被覆盖或删除，授权停止，原有访问诊断日志会说明原因。恢复只处理本工具专用组的暂存入口，不删除链接指向的外部目标。仍须使用没有被其他 App 共享的组。
+
+手动添加中的裸 UUID 仅在已发现列表或只读存在性检查可以唯一确认 Application/PluginKitPlugin 类型时解析；遇到权限未知或多个候选时，继续要求来源明确的完整路径。
 
 ## 构建与发行
 
 GitHub Actions 工作流：[Build Cleaner unsigned IPA](../.github/workflows/cleaner-ipa.yml)。
 
-**稳定回退版本：** [Cleaner v0.89.0](https://github.com/iloveyouwife/Cleaner/releases/tag/v0.89.0) 的源码标签和 IPA 保持原样。v90 在其基础上增补安全边界与设置入口修复，出现新问题时可重新安装 v89；同 Bundle ID 重装需注意保留你的签名 App Group 配置。
+**稳定回退版本：** [Cleaner v0.89.0](https://github.com/iloveyouwife/Cleaner/releases/tag/v0.89.0) 的源码标签和 IPA 保持原样。v90 及 v89 均保留回退包，v91 在现有布局基础上完善发布、身份核验与事务恢复；同 Bundle ID 重装需注意保留你的签名 App Group 配置。
 
-`main` 是当前稳定源码。自动化使用 Xcode 27 编译未签名 IPA，并在 Actions 保留构建产物。新版本发布时，在 `project.yml` 中将 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 分别递增为 `0.N.0` 和 `N`；提交到 `main` 后，流水线通过校验并发现该标签尚不存在，就会自动创建 `v0.N.0` 标签并将 IPA 发布到 [Releases](https://github.com/iloveyouwife/Cleaner/releases)。已发布版本不会被自动覆盖。
+`main` 是当前稳定源码。自动化使用 Xcode 27 编译未签名 IPA，并在 Actions 保留构建产物。新版本发布时，在 `project.yml` 中将 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 分别递增为 `0.N.0` 和 `N`；提交到 `main` 后，流水线完成源码与界面保护检查、Release 编译、全部逻辑和 UI 测试，并确认提交仍为当前 main 且标签尚不存在，才会自动创建 `v0.N.0` 标签并将 IPA 发布到 [Releases](https://github.com/iloveyouwife/Cleaner/releases)。已发布版本不会被自动覆盖。
 
 发布的是**未签名 IPA**。GitHub 构建成功或模拟器 UI 测试通过，并不证明用户设备拥有越权读取能力，也不能替代真机验证。
 
@@ -50,4 +52,4 @@ GitHub Actions 工作流：[Build Cleaner unsigned IPA](../.github/workflows/cle
 - 有限缓存扫描与清理算法：[YangJiiii/3105](https://github.com/YangJiiii/3105)（GPL-3.0-or-later），见 `LimitedCleanerService.swift` 的来源说明。
 - 一部分只读容器信息查询参考 3105；未复制其完整权限提升流程。
 
-按 [GPL-3.0-or-later](LICENSE) 的要求分发源码、版权和许可信息。早期版本的逐条 UI 改动记录不再作为当前功能说明，以现有源码与发行版为准。
+按 [GPL-3.0-or-later](LICENSE) 的要求分发源码、版权和许可信息。历史记录保存在 [CHANGELOG.md](CHANGELOG.md)，当次发行说明仅保留本版变化。测试中的 CSStore2 样本由代码合成，不包含设备数据库或真实用户数据。早期版本的逐条 UI 改动记录不作为当前功能说明，以现有源码与发行版为准。

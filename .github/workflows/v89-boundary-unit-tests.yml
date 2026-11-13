@@ -28,7 +28,9 @@ jobs:
           cd WorseCleanerBuild
           xcodegen generate
       - name: Verify no authorization or deletion-scope expansion
-        run: python3 WorseCleanerBuild/scripts/verify_source_guards.py
+        run: |
+          python3 WorseCleanerBuild/scripts/verify_source_guards.py
+          python3 WorseCleanerBuild/scripts/verify_stability_invariants.py
       - name: Run all Cleaner logic unit tests including new boundary tests
         run: |
           set -euo pipefail
@@ -44,8 +46,7 @@ jobs:
             -resultBundlePath "$PWD/v89-boundary-tests.xcresult" \
             -parallel-testing-enabled NO \
             -only-testing:CleanerUnitTests \
-            CODE_SIGNING_ALLOWED=NO \
-            test
+            CODE_SIGNING_ALLOWED=NO
       - name: Upload result bundle
         if: always()
         uses: actions/upload-artifact@v4

@@ -27,22 +27,25 @@ typedef struct {
 } WCCatalogAPI;
 
 static WCCatalogAPI WCLoadAPI(void) {
-    WCCatalogAPI api = {0};
-    void *handle = dlopen("/usr/lib/system/libsystem_containermanager.dylib", RTLD_NOW | RTLD_LOCAL);
-    if (!handle) return api;
+    static WCCatalogAPI api;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        void *handle = dlopen("/usr/lib/system/libsystem_containermanager.dylib", RTLD_NOW | RTLD_LOCAL);
+        if (!handle) return;
 #define LOAD(field, name) api.field = (__typeof(api.field))dlsym(handle, name)
-    LOAD(create, "container_query_create");
-    LOAD(setClass, "container_query_set_class");
-    LOAD(setFlags, "container_query_operation_set_flags");
-    LOAD(setPart, "container_query_operation_set_part");
-    LOAD(setIdentifiers, "container_query_set_identifiers");
-    LOAD(single, "container_query_get_single_result");
-    LOAD(iterate, "container_query_iterate_results_sync");
-    LOAD(freeQuery, "container_query_free");
-    LOAD(getIdentifier, "container_object_get_identifier");
-    LOAD(getPath, "container_object_get_path");
+        LOAD(create, "container_query_create");
+        LOAD(setClass, "container_query_set_class");
+        LOAD(setFlags, "container_query_operation_set_flags");
+        LOAD(setPart, "container_query_operation_set_part");
+        LOAD(setIdentifiers, "container_query_set_identifiers");
+        LOAD(single, "container_query_get_single_result");
+        LOAD(iterate, "container_query_iterate_results_sync");
+        LOAD(freeQuery, "container_query_free");
+        LOAD(getIdentifier, "container_object_get_identifier");
+        LOAD(getPath, "container_object_get_path");
 #undef LOAD
-    // Deliberately keep the library loaded while these function pointers are in use.
+        // One retained handle backs the cached function table for the process.
+    });
     return api;
 }
 
@@ -113,6 +116,20 @@ static NSString *WCNormalizePath(NSString *path) {
     return path ?: @"";
 }
 
+NSString *WCLookupApplicationDataContainer(NSString *bundleID) {
+    if (!WCValidIdentifier(bundleID)) return nil;
+    WCLoadLaunchServices();
+    Class cls = NSClassFromString(@"LSApplicationProxy");
+    SEL selector = NSSelectorFromString(@"applicationProxyForIdentifier:");
+    if (!cls || ![cls respondsToSelector:selector]) return nil;
+    id proxy = ((id (*)(id, SEL, id))objc_msgSend)(cls, selector, bundleID);
+    NSString *actual = WCInvoke(proxy, @"applicationIdentifier");
+    if (!actual.length) actual = WCInvoke(proxy, @"bundleIdentifier");
+    if (![actual isEqualToString:bundleID]) return nil;
+    NSURL *url = WCInvoke(proxy, @"dataContainerURL");
+    return [url isKindOfClass:NSURL.class] ? WCNormalizePath(url.path) : nil;
+}
+
 static NSString *WCInfoString(NSDictionary *info, NSArray<NSString *> *keys) {
     for (NSString *key in keys) {
         id value = info[key];
@@ -124,12 +141,18 @@ static NSString *WCInfoString(NSDictionary *info, NSArray<NSString *> *keys) {
 // 3105's read-only legacy fallback. On newer builds the symbol may be absent;
 // that is a normal unsupported result, not an exploit failure.
 static NSDictionary *WCReadMobileInstallationCatalog(void) {
-    void *library = dlopen(
-        "/System/Library/PrivateFrameworks/MobileInstallation.framework/MobileInstallation",
-        RTLD_LAZY | RTLD_LOCAL
-    );
-    void *symbol = dlsym(RTLD_DEFAULT, "MobileInstallationLookup");
-    if (!symbol && library) symbol = dlsym(library, "MobileInstallationLookup");
+    static void *symbol;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        void *library = dlopen(
+            "/System/Library/PrivateFrameworks/MobileInstallation.framework/MobileInstallation",
+            RTLD_LAZY | RTLD_LOCAL
+        );
+        symbol = dlsym(RTLD_DEFAULT, "MobileInstallationLookup");
+        if (!symbol && library) symbol = dlsym(library, "MobileInstallationLookup");
+        // Keep a successfully resolved function alive with one library reference.
+        if (!symbol && library) dlclose(library);
+    });
     if (!symbol) return @{};
     NSDictionary *(*lookup)(NSDictionary *, void *) =
         (NSDictionary *(*)(NSDictionary *, void *))symbol;

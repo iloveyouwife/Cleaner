@@ -108,6 +108,3 @@ NSArray<NSString *> *pathleak_multiple(NSArray<NSString *> *paths, uint64_t max_
     return result;
 }
 
-NSArray<NSString *> *pathleak(NSString *path, uint64_t max_inode) {
-    return pathleak_multiple(@[path], max_inode);
-}

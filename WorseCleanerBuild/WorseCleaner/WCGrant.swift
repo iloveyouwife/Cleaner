@@ -23,7 +23,7 @@ enum WCGrant {
                 lastError = handle
                 // These indicate an unavailable App Group or query library;
                 // changing the query flags cannot repair either condition.
-                if handle == -1 || handle == -2 { return handle }
+                if handle == -1 || handle == -2 || handle == -4 || (-12 ... -9).contains(handle) { return handle }
                 continue
             }
 

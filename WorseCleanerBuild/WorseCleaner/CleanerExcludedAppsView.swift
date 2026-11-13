@@ -8,7 +8,7 @@ struct CleanerExcludedAppsView: View {
     var body: some View {
         NavigationStack {
             List {
-                let excluded = WCScanExclusions.excludedTargets(
+                let excluded = WCScanExclusions.managementTargets(
                     model.apps, excludedPaths: model.excludedPaths
                 )
                 if excluded.isEmpty {
@@ -36,6 +36,8 @@ struct CleanerExcludedAppsView: View {
                             }
                         }
                     }
+                }
+                if !model.excludedPaths.isEmpty {
                     Section {
                         Button("全部恢复") {
                             model.restoreExcluded(model.excludedPaths)

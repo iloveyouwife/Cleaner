@@ -25,7 +25,8 @@ struct LimitedCleanerResult: Equatable {
     let removedItemCount: Int
     let failedItemCount: Int
 
-    var freedBytes: Int64 {
+    /// Logical file-size change, not allocated blocks or immediate disk recovery.
+    var logicalByteReduction: Int64 {
         max(0, before.totalBytes - after.totalBytes)
     }
 }

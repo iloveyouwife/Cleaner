@@ -34,6 +34,7 @@ final class WorseCleanerModel: ObservableObject {
     private let confirmedGroupKey = "wc.confirmedDedicatedGroup"
     private var discoveredBundleRoots: [String] = []
     private var discoveredLSStore: String?
+    private var discoveredLSRead: WCLaunchServicesRead?
     private var discoveryDiagnostics = ""
     private var lastPreparedGroup = ""
     private var discoveryPercent = 0
@@ -68,6 +69,7 @@ final class WorseCleanerModel: ObservableObject {
         scanTargetCount = 0
         discoveredBundleRoots.removeAll()
         discoveredLSStore = nil
+        discoveredLSRead = nil
         discoveryDiagnostics = ""
         discoveryPercent = 0
         catalogMemo = nil
@@ -127,6 +129,7 @@ final class WorseCleanerModel: ObservableObject {
             usage.removeAll()
             scannedAppCount = 0
             scanTargetCount = 0
+            discoveredLSRead = nil
             lastPreparedGroup = groupID
         }
         groupConfirmed = appGroupReady &&
@@ -141,6 +144,7 @@ final class WorseCleanerModel: ObservableObject {
         // Re-check the actual signing state before *any* MCM/LS/inode calls.
         refreshSigning()
         guard canDiscoverApps else { return }
+        discoveredLSRead = nil
         // Explicit App-list refresh must re-read current app identities.
         catalogMemo = nil
         lastLaunchServicesStamp = nil
@@ -176,6 +180,7 @@ final class WorseCleanerModel: ObservableObject {
                 self.busy = false
                 if let quick {
                     self.discoveredLSStore = quick.launchServicesStore
+                    self.discoveredLSRead = quick.read
                     self.discoveredBundleRoots = []
                     self.discoveryDiagnostics = quick.diagnostics
                     self.status = "通过 App 数据库发现 \(quick.data.count) 个容器，当前列表 \(discovered.count) 项。"
@@ -205,7 +210,8 @@ final class WorseCleanerModel: ObservableObject {
             return
         }
         do {
-            let target = try WCTarget(bundleID: "manual", name: "手动指定的 App", path: path)
+            let resolved = try WCManualContainerPath.resolve(path, knownTargets: apps)
+            let target = try WCTarget(bundleID: "manual", name: "手动指定的 App", path: resolved)
             let identity = WCPathDiscovery.containerIdentity(target.path)
             if !apps.contains(where: { WCPathDiscovery.containerIdentity($0.path) == identity }) {
                 apps.insert(target, at: 0)
@@ -228,6 +234,7 @@ final class WorseCleanerModel: ObservableObject {
         completedCacheScan = false
         busy = true
         discoveryPercent = 0
+        discoveredLSRead = nil
         let forceFull = !automaticallyScan
         status = forceFull
             ? "正在完整发现 App 与扩展容器，首次全量扫描可能较久。"
@@ -289,6 +296,8 @@ final class WorseCleanerModel: ObservableObject {
         let previousStamp = lastLaunchServicesStamp
         let bundleRoots = discoveredBundleRoots
         let lsStore = discoveredLSStore
+        let initialRead = discoveredLSRead
+        discoveredLSRead = nil // This reuse is confined to one discovery/scan operation.
         let discoveryInfo = discoveryDiagnostics
         // Read actor-isolated configuration before entering the worker queue.
         // Avoid accessing a @MainActor static property from a Sendable closure.
@@ -335,7 +344,8 @@ final class WorseCleanerModel: ObservableObject {
             let catalogStarted = ProcessInfo.processInfo.systemUptime
             let catalog = recentCatalog ?? WCAppNames.catalog(
                 groupID: selectedGroup, discoveredBundleRoots: bundleRoots,
-                launchServicesStore: effectiveLSStore, knownPaths: Set(targets.map(\.path))
+                launchServicesStore: effectiveLSStore, knownPaths: Set(targets.map(\.path)),
+                verifiedRead: changes?.read ?? initialRead, currentStamp: scanStartLSStamp
             )
             let catalogDuration = ProcessInfo.processInfo.systemUptime - catalogStarted
             let inspectionStarted = ProcessInfo.processInfo.systemUptime
@@ -404,7 +414,7 @@ final class WorseCleanerModel: ObservableObject {
                 self.apps = currentApps.map { identities[$0.id] ?? $0 }
                 self.busy = false
                 let stats = "名称识别：\(namedCount) 个可显示名称（含离线名称映射）、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个未识别容器。"
-                let methods = "来源：LaunchServices \(identityCounts[.launchServices, default: 0])，元数据 \(identityCounts[.metadata, default: 0])，保存状态 \(identityCounts[.savedState, default: 0])，偏好文件 \(identityCounts[.preferences, default: 0])。"
+                let methods = "来源：LaunchServices \(identityCounts[.launchServices, default: 0])，元数据 \(identityCounts[.metadata, default: 0])，容器目录 \(identityCounts[.catalog, default: 0])，保存状态 \(identityCounts[.savedState, default: 0])，偏好文件 \(identityCounts[.preferences, default: 0])。"
                 let access = metadataErrors.sorted { $0.value > $1.value }.prefix(2)
                     .map { "errno \($0.key): \($0.value)" }.joined(separator: "，")
                 let permissionHint = metadataErrors[EPERM, default: 0] > 0
@@ -482,11 +492,12 @@ final class WorseCleanerModel: ObservableObject {
             var removed = 0
             var failures = 0
             var failedIDs = Set<String>()
+            var cleanupErrors: [String: Int] = [:]
             for target in targets {
                 do {
                     let result = try WCFileAccess.clean(target, groupID: selectedGroup)
                     latest[target.id] = result.after
-                    freed += result.freedBytes
+                    freed += result.logicalByteReduction
                     removed += result.removedItemCount
                     failures += result.failedItemCount
                 } catch {
@@ -497,13 +508,19 @@ final class WorseCleanerModel: ObservableObject {
                         failures += 1
                     }
                     failedIDs.insert(target.id)
+                    cleanupErrors[String(error.localizedDescription.prefix(240)), default: 0] += 1
                 }
             }
             DispatchQueue.main.async {
+                if !cleanupErrors.isEmpty {
+                    let summary = cleanupErrors.sorted { $0.value > $1.value }.prefix(3)
+                        .map { "\($0.key) ×\($0.value)" }.joined(separator: "\n")
+                    self.accessDiagnostics += "\n清理失败原因（最多三类）：\n" + summary
+                }
                 for id in failedIDs { self.usage.removeValue(forKey: id) }
                 for (key, result) in latest { self.usage[key] = result }
                 self.busy = false
-                self.status = "已确认删除 \(removed) 项，已复核释放约 \(CleanerSizeText.bytes(freed))。失败或未验证 \(failures) 项。"
+                self.status = "已确认删除 \(removed) 项，缓存逻辑大小减少约 \(CleanerSizeText.bytes(freed))。失败或未验证 \(failures) 项。"
             }
         }
     }

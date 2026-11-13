@@ -101,11 +101,14 @@ enum WCAppNames {
 
     static func catalog(
         groupID: String, discoveredBundleRoots: [String] = [],
-        launchServicesStore: String? = nil, knownPaths: Set<String> = []
+        launchServicesStore: String? = nil, knownPaths: Set<String> = [],
+        verifiedRead: WCLaunchServicesRead? = nil, currentStamp: WCLaunchServicesStamp? = nil
     ) -> WCAppCatalog {
         var names = offlineNames
         names.merge(savedNames()) { _, saved in saved }
-        let ls = WCLaunchServices.load(
+        let ls = verifiedRead?.snapshotIfCurrent(
+            groupID: groupID, storePath: launchServicesStore, stamp: currentStamp
+        ) ?? WCLaunchServices.load(
             storePath: launchServicesStore, groupID: groupID, knownPaths: knownPaths
         )
         if let ls {

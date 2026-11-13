@@ -93,7 +93,7 @@ checks = {
         "scanTargetCount = targets.count" in model,
     "Exclusion persistence and management normalize all path aliases":
         "WCScanExclusions.normalizedPaths" in model
-        and "WCScanExclusions.excludedTargets" in (src / "CleanerExcludedAppsView.swift").read_text(),
+        and "WCScanExclusions.managementTargets" in (src / "CleanerExcludedAppsView.swift").read_text(),
     "Uninstalled and excluded selections cannot stay selected":
         "CleanerSelectionScope.retainingEligible" in ui
         and "selected: selectedIDs, apps: model.apps, excludedPaths: excluded" in ui,
