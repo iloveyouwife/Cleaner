@@ -27,16 +27,9 @@
 #include <sys/fsgetpath.h>
 #include <sys/mount.h>
 
-// This is just a rewrite of bad_query_list to return an NSString array and run faster
-// The way this works is literally just brute-forcing inodes and doing fsgetpath until it gets a matching path, lol.
-// Which is still, obviously, dramatically faster than brute-forcing UUIDs.
-
-// It might be possible to derive a sane inode value automagically by just creating a file, doing stat() on it, getting *that* file's inode, then using that for the max_inode count.
-
+// Bounded multi-volume inode enumeration via fsgetpath for direct child directories.
 NSArray<NSString *> *pathleak_multiple(NSArray<NSString *> *paths, uint64_t max_inode) {
-    // Each root may belong to a different APFS volume. v7 looked up only
-    // paths.firstObject's fsid, silently missing every Bundle/Application
-    // inode when Data/Application was on another volume.
+    // Group requested roots by APFS volume fsid so each distinct volume is walked once.
     if (!paths.count || max_inode < 1) return nil;
     NSMutableArray<NSValue *> *volumeIDs = [NSMutableArray array];
     NSMutableArray<NSMutableArray<NSData *> *> *volumePrefixes = [NSMutableArray array];

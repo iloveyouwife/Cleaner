@@ -402,8 +402,7 @@ final class WorseCleanerModel: ObservableObject {
                     scanErrors[reason, default: 0] += 1
                 }
                 let now = ProcessInfo.processInfo.systemUptime
-                // Keep v85's stable progress cadence; do not slow down the
-                // counter to conceal expensive SwiftUI computations.
+                // Throttle UI progress updates to 0.15s intervals while always reporting completion.
                 if now - lastProgressUpdate >= 0.15 || index + 1 == targets.count {
                     lastProgressUpdate = now
                     DispatchQueue.main.async { self.scannedAppCount = index + 1 }

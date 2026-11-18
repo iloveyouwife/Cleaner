@@ -66,8 +66,7 @@ final class CleanerUnitTests: XCTestCase {
 
     func testSearchScrollReturnDoesNotRequireSecondGesture() {
         let height: CGFloat = 70
-        // Unlike the v82 near-top gate or 50% threshold, a single reverse
-        // movement must always update the visible search height.
+        // A single reverse scroll movement must immediately update the visible search height.
         XCTAssertEqual(
             CleanerSearchScrollMetrics.collapseAmount(
                 scrollOffset: 35, fullHeight: height

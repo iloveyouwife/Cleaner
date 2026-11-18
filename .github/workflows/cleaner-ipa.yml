@@ -99,6 +99,8 @@ jobs:
           set -euo pipefail
           simulator_id="$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 16 Pro") | .udid][0] // [.devices[][] | select(.name | startswith("iPhone")) | .udid][0] // empty')"
           test -n "$simulator_id"
+          xcrun simctl boot "$simulator_id" || true
+          xcrun simctl bootstatus "$simulator_id" -b
           xcodebuild test \
             -project WorseCleanerBuild/WorseCleaner.xcodeproj \
             -scheme WorseCleaner \
@@ -270,8 +272,7 @@ jobs:
           fi
           asset="Cleaner-v${version}-unsigned.ipa"
           cp WorseCleaner-iOS27-unsigned.ipa "$asset"
-          shasum -a 256 "$asset" > "${asset}.sha256"
-          gh release create "$tag" "$asset" "${asset}.sha256" \
+          gh release create "$tag" "$asset" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Cleaner v${version}" \
             --target "$GITHUB_SHA" \

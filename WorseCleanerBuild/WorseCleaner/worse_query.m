@@ -258,7 +258,6 @@ BOOL WQCacheStageEnd(NSString *caches, NSString *target) {
     return WQCacheStageRecover(caches);
 }
 
-// So, who's ready for round two?
 int64_t worse_query(NSString *target, NSString *group, bool alt_flags, bool create_dir) {
     // Check if the target exists
     if (!create_dir) {
@@ -351,7 +350,6 @@ int64_t worse_query(NSString *target, NSString *group, bool alt_flags, bool crea
     return handle < 0 ? -7 : handle;
 }
 
-// You should probably call this when you're done
 void worse_query_release(int64_t handle) {
     if (handle < 0) return;
     sandbox_extension_release_fn release_extension = (sandbox_extension_release_fn)dlsym(RTLD_DEFAULT, "sandbox_extension_release");

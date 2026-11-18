@@ -48,9 +48,8 @@ static BOOL WCIsLSStorePath(const char *path) {
 
 static NSString *WCFindRecentLSStore(fsid_t volume, uint64_t upper, uint64_t *foundInode,
                                      uint64_t lookback, NSTimeInterval timeLimit) {
-    // A rewritten lsd database normally has a recent inode. Existing v53
-    // indexes lack its path; use one bounded reverse pass rather than a
-    // second unbounded full-volume scan. If absent, normal name fallbacks run.
+    // A rewritten lsd database normally has a recent inode. Use a bounded
+    // reverse pass rather than an unbounded full-volume scan.
     uint64_t lower = upper > lookback ? upper - lookback : 1;
     CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
     NSLock *lock = [NSLock new];
