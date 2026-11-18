@@ -136,8 +136,13 @@ enum WCPathDiscovery {
     // app cannot create an inode probe. Names remain best-effort; a missing
     // bundle path must never hide a data container found on the Data volume.
     private static let bundleLookupCap: UInt64 = 5_000_000
+    private static let maximumBundleLookupCap: UInt64 = 50_000_000
     private static let bundleCacheKey = "wc.bundleRootIndex"
     private static let bundleCacheTimeKey = "wc.bundleRootIndexTime"
+
+    static func effectiveBundleLookupCap(discoveredUpper: UInt64) -> UInt64 {
+        min(max(bundleLookupCap, discoveredUpper), maximumBundleLookupCap)
+    }
 
     // WQFiles v0.8: the LaunchServices index records installed Application and
     // PluginKitPlugin data-container UUIDs. Prefer those verified paths over a
@@ -238,9 +243,11 @@ enum WCPathDiscovery {
             // The Data-volume pass is done; make this second, optional lookup
             // visible instead of leaving the UI apparently stuck at 100%.
             progress?(0, 0)
+            let discoveredUpper = (result["upper"] as? NSNumber)?.uint64Value ?? 0
+            let effectiveCap = effectiveBundleLookupCap(discoveredUpper: discoveredUpper)
             let prefix = "/private/var/containers/Bundle/Application/"
             let found = pathleak_multiple(
-                ["/private/var/containers/Bundle/Application"], bundleLookupCap
+                ["/private/var/containers/Bundle/Application"], effectiveCap
             ) ?? []
             bundleRoots = found.filter { path in
                 guard path.hasPrefix(prefix) else { return false }

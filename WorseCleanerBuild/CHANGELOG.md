@@ -2,6 +2,14 @@ Cleaner 历史更新记录
 
 以下保留各版当时的实现说明；当前行为以 README 和现行源码为准。
 
+## Cleaner v0.95.0 — 全界面容器数量严格对齐与状态/清洗细节完善
+
+- `WCScanExclusions.eligibleTargets` 同步过滤首页隐藏的 6 个内部系统服务，并扣减扫描中识别出的内部服务，使顶部卡片“`N 个数据容器`”与下方三个分组数量之和严格一致。
+- 发现状态与扫描完成状态文案统一对账，补齐扫描完成提示中的“`未识别 C 个`”。
+- 多 App Group 切回已确认组时自动刷新列表；联网查名任务写回前复核 `canDiscoverApps` 状态。
+- 联网查询与 `Info.plist` 名称统一通过 `WCLaunchServices.safeName` 清洗；安装包名称回退 `bundleLookupCap` 自适应当前卷真实 inode 上限（最高 5000 万）。
+- `project.yml` 补充屏幕方向声明消除编译警告，清理 `v89`/`v90` 历史工作流，新增 3 项单元测试（总计 70 项）。
+
 ## Cleaner v0.94.0 — 零副作用边界收敛修复与主分支同步
 
 - 当 `sandbox_extension_consume` 失败返回 `-1` 时映射为独立错误码 `-7`，避免与 `-1`（App Group 不可用）冲突而提前终止备用查询参数重试。

@@ -31,7 +31,7 @@
 
 GitHub Actions 工作流：[Build Cleaner unsigned IPA](../.github/workflows/cleaner-ipa.yml)。
 
-**稳定回退版本：** [Cleaner v0.89.0](https://github.com/iloveyouwife/Cleaner/releases/tag/v0.89.0) 的源码标签和 IPA 保持原样。v89–v93 均保留回退包，v94 在现有稳定界面基础上完成收敛修复并同步 `main`；同 Bundle ID 重装需注意保留你的签名 App Group 配置。
+**稳定回退版本：** [Cleaner v0.89.0](https://github.com/iloveyouwife/Cleaner/releases/tag/v0.89.0) 的源码标签和 IPA 保持原样。v89–v94 均保留回退包，v95 在现有稳定界面基础上完成全界面容器计数对齐与细节完善；同 Bundle ID 重装需注意保留你的签名 App Group 配置。
 
 `main` 是当前稳定源码。自动化使用 Xcode 27 编译未签名 IPA，并在 Actions 保留构建产物。新版本发布时，在 `project.yml` 中将 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 分别递增为 `0.N.0` 和 `N`；提交到 `main` 后，流水线完成源码与界面保护检查、Release 编译、全部逻辑和 UI 测试，并确认提交仍为当前 main 且标签尚不存在，才会自动创建 `v0.N.0` 标签并将 IPA 发布到 [Releases](https://github.com/iloveyouwife/Cleaner/releases)。已发布版本不会被自动覆盖。
 

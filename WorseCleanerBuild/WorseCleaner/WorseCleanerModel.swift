@@ -38,6 +38,7 @@ final class WorseCleanerModel: ObservableObject {
     private var discoveryDiagnostics = ""
     private var lastPreparedGroup = ""
     private var discoveryPercent = 0
+    private var inLoadAppsEntry = false
 
     // Reuse only verified App-name and container mappings for three minutes.
     // Cache sizes and access permissions are NEVER reused: scanAll always
@@ -115,6 +116,7 @@ final class WorseCleanerModel: ObservableObject {
     }
 
     func refreshSigning() {
+        let wasAllowed = canDiscoverApps
         grantedGroups = WCFileAccess.signedGroups()
         let available = WCFileAccess.accessibleGroups()
         if !available.contains(groupID) {
@@ -136,13 +138,18 @@ final class WorseCleanerModel: ObservableObject {
             UserDefaults.standard.string(forKey: confirmedGroupKey) == groupID
         if !canDiscoverApps {
             clearDiscoveryWhenUnconfirmed()
+        } else if !wasAllowed && !busy && !inLoadAppsEntry {
+            status = "已切换到已确认的专用 App Group，正在刷新容器列表……"
+            loadApps()
         }
     }
 
     func loadApps() {
-        guard !busy else { return }
+        guard !busy, !inLoadAppsEntry else { return }
         // Re-check the actual signing state before *any* MCM/LS/inode calls.
+        inLoadAppsEntry = true
         refreshSigning()
+        inLoadAppsEntry = false
         guard canDiscoverApps else { return }
         discoveredLSRead = nil
         // Explicit App-list refresh must re-read current app identities.
@@ -183,7 +190,9 @@ final class WorseCleanerModel: ObservableObject {
                     self.discoveredLSRead = quick.read
                     self.discoveredBundleRoots = []
                     self.discoveryDiagnostics = quick.diagnostics
-                    self.status = "通过 App 数据库发现 \(quick.data.count) 个容器，当前列表 \(discovered.count) 项。"
+                    let filteredCount = max(0, discovered.count - self.scanTargetCount)
+                    let filteredNote = filteredCount > 0 ? "（已过滤排除或内部服务 \(filteredCount) 项）" : ""
+                    self.status = "通过 App 数据库发现 \(quick.data.count) 个容器，当前可扫描 \(self.scanTargetCount) 项\(filteredNote)。"
                     if self.appGroupReady && self.groupConfirmed { self.scanAll() }
                     return
                 }
@@ -195,7 +204,7 @@ final class WorseCleanerModel: ObservableObject {
                 } else {
                     self.status = discovered.isEmpty
                         ? (message ?? "没有发现 App 容器，可手动添加已知 UUID 路径。")
-                        : "发现 \(discovered.count) 个可查询容器，尚未验证可读写权限。"
+                        : "发现 \(self.scanTargetCount) 个可扫描容器，尚未验证可读写权限。"
                 }
                 self.deepDiscoverApps(automaticallyScan: true)
             }
@@ -268,7 +277,9 @@ final class WorseCleanerModel: ObservableObject {
                     self.apps.append(contentsOf: found.filter {
                         seen.insert(WCPathDiscovery.containerIdentity($0.path)).inserted
                     })
-                    self.status = "\(result.incremental ? "增量" : "完整")扫描 \(result.scannedInodes) 个 inode，发现 \(found.count - result.extensionCount) 个 App、\(result.extensionCount) 个扩展容器。当前列表 \(self.apps.count) 项。"
+                    let filteredCount = max(0, self.apps.count - self.scanTargetCount)
+                    let filteredNote = filteredCount > 0 ? "（已过滤排除或内部服务 \(filteredCount) 项）" : ""
+                    self.status = "\(result.incremental ? "增量" : "完整")扫描 \(result.scannedInodes) 个 inode，发现 \(found.count - result.extensionCount) 个 App、\(result.extensionCount) 个扩展容器。当前可扫描 \(self.scanTargetCount) 项\(filteredNote)。"
                     if !result.completeBound {
                         self.status += " 扫描结束时 inode 仍在增长或无法复核范围，列表可能不完整。"
                     }
@@ -353,6 +364,7 @@ final class WorseCleanerModel: ObservableObject {
             var results: [String: LimitedCleanerUsage] = [:]
             var identities: [String: WCTarget] = [:]
             var failures = 0
+            var hiddenDuringScan = 0
             var identityCounts: [WCIdentitySource: Int] = [:]
             var namedCount = 0
             var readableButUnnamed = 0
@@ -364,21 +376,25 @@ final class WorseCleanerModel: ObservableObject {
                         target, groupID: selectedGroup, knownNames: catalog.names,
                         knownContainers: catalog.containers
                     )
-                    results[target.id] = inspection.usage
                     identities[target.id] = inspection.target
-                    identityCounts[inspection.identitySource, default: 0] += 1
-                    switch WCIdentityBucket.classify(
-                        target: inspection.target, source: inspection.identitySource
-                    ) {
-                    case .named:
-                        namedCount += 1
-                    case .bundleIDOnly:
-                        readableButUnnamed += 1
-                    case .unresolved:
-                        break
-                    }
-                    if let code = inspection.metadataErrno {
-                        metadataErrors[code, default: 0] += 1
+                    if WCScanExclusions.isHiddenSystemService(inspection.target.bundleID) {
+                        hiddenDuringScan += 1
+                    } else {
+                        results[target.id] = inspection.usage
+                        identityCounts[inspection.identitySource, default: 0] += 1
+                        switch WCIdentityBucket.classify(
+                            target: inspection.target, source: inspection.identitySource
+                        ) {
+                        case .named:
+                            namedCount += 1
+                        case .bundleIDOnly:
+                            readableButUnnamed += 1
+                        case .unresolved:
+                            break
+                        }
+                        if let code = inspection.metadataErrno {
+                            metadataErrors[code, default: 0] += 1
+                        }
                     }
                 } catch {
                     failures += 1
@@ -417,14 +433,16 @@ final class WorseCleanerModel: ObservableObject {
                 self.usage.merge(results) { _, newer in newer }
                 self.apps = currentApps.map { identities[$0.id] ?? $0 }
                 self.busy = false
-                let stats = "名称识别：\(namedCount) 个可显示名称（含离线名称映射）、\(readableButUnnamed) 个 Bundle ID、\(identityCounts[.unresolved, default: 0]) 个未识别容器。"
+                let unresolvedCount = identityCounts[.unresolved, default: 0]
+                let visibleTargetCount = max(0, targets.count - hiddenDuringScan)
+                let stats = "名称识别：\(namedCount) 个可显示名称（含离线名称映射）、\(readableButUnnamed) 个 Bundle ID、\(unresolvedCount) 个未识别容器。"
                 let methods = "来源：LaunchServices \(identityCounts[.launchServices, default: 0])，元数据 \(identityCounts[.metadata, default: 0])，容器目录 \(identityCounts[.catalog, default: 0])，保存状态 \(identityCounts[.savedState, default: 0])，偏好文件 \(identityCounts[.preferences, default: 0])。"
                 let access = metadataErrors.sorted { $0.value > $1.value }.prefix(2)
                     .map { "errno \($0.key): \($0.value)" }.joined(separator: "，")
                 let permissionHint = metadataErrors[EPERM, default: 0] > 0
                     ? " 元数据受系统权限限制。详见高级设置中的访问诊断。" : ""
-                self.status = "扫描完成：\(results.count)/\(targets.count) 个容器可访问，" +
-                    "识别名称 \(namedCount) 个，识别 Bundle ID \(readableButUnnamed) 个。" +
+                self.status = "扫描完成：\(results.count)/\(visibleTargetCount) 个容器可访问（" +
+                    "已识别名称 \(namedCount) 个、仅 Bundle ID \(readableButUnnamed) 个、未识别 \(unresolvedCount) 个）。" +
                     (failures == 0 ? "" : " 扫描失败 \(failures) 个。") + permissionHint
                 let scanFailures = scanErrors.sorted { $0.value > $1.value }.prefix(3)
                     .map { "\($0.key) ×\($0.value)" }.joined(separator: "\n")
@@ -456,6 +474,7 @@ final class WorseCleanerModel: ObservableObject {
             var found: [String: String] = [:]
             let ids = Array(candidates)
             for start in stride(from: 0, to: ids.count, by: 5) {
+                guard canDiscoverApps else { break }
                 let batch = Array(ids[start..<min(start + 5, ids.count)])
                 await withTaskGroup(of: (String, String?).self) { group in
                     for id in batch {
@@ -465,7 +484,13 @@ final class WorseCleanerModel: ObservableObject {
                         if let name { found[id] = name }
                     }
                 }
-                status = "已查询 \(min(start + 5, ids.count))/\(ids.count) 个 App，找到 \(found.count) 个名称。"
+                if canDiscoverApps {
+                    status = "已查询 \(min(start + 5, ids.count))/\(ids.count) 个 App，找到 \(found.count) 个名称。"
+                }
+            }
+            guard canDiscoverApps else {
+                busy = false
+                return
             }
             WCAppNames.storeVerifiedNames(found)
             catalogMemo = nil

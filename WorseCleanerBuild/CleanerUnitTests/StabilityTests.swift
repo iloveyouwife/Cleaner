@@ -196,4 +196,60 @@ final class StabilityTests: XCTestCase {
         XCTAssertEqual(cleaned.failedItemCount, 0)
         XCTAssertEqual(cleaned.after.totalBytes, 0)
     }
+
+    @MainActor
+    func testHiddenSystemServicesAreExcludedFromEligibleTargetsAndScanTargetCount() throws {
+        let p1 = "/var/mobile/Containers/Data/Application/00000000-0000-4000-8000-000000000001"
+        let p2 = "/var/mobile/Containers/Data/Application/00000000-0000-4000-8000-000000000002"
+        let p3 = "/var/mobile/Containers/Data/PluginKitPlugin/00000000-0000-4000-8000-000000000003"
+        let h1 = "/var/mobile/Containers/Data/Application/00000000-0000-4000-8000-000000000004"
+        let h2 = "/var/mobile/Containers/Data/Application/00000000-0000-4000-8000-000000000005"
+
+        let visibleNamed = try WCTarget(bundleID: "com.example.one", name: "App One", path: p1)
+        let visibleIDOnly = try WCTarget(bundleID: "com.example.two", name: "com.example.two", path: p2)
+        let visibleUnknown = try WCTarget(bundleID: "容器 00000000", name: "扩展容器 00000000", path: p3)
+        let hiddenWebApp = try WCTarget(bundleID: "com.apple.webapp", name: "Web", path: h1)
+        let hiddenPassbook = try WCTarget(bundleID: "com.apple.PassbookUIService", name: "PassbookUI", path: h2)
+
+        let all = [visibleNamed, visibleIDOnly, visibleUnknown, hiddenWebApp, hiddenPassbook]
+        let eligible = WCScanExclusions.eligibleTargets(all, excludedPaths: [])
+        XCTAssertEqual(eligible.map(\.id), [visibleNamed.id, visibleIDOnly.id, visibleUnknown.id])
+
+        let model = WorseCleanerModel()
+        model.apps = all
+        XCTAssertEqual(model.scanTargetCount, 3, "Top summary container count must match visible sections sum")
+    }
+
+    func testInstalledAppNamesAreTrimmedAndSanitizedAgainstControlCharacters() {
+        XCTAssertEqual(
+            WCAppNames.installedName(
+                at: "/nonexistent-bundle-path",
+                info: ["CFBundleDisplayName": "  示例应用  "]
+            ),
+            "示例应用"
+        )
+        XCTAssertEqual(
+            WCAppNames.installedName(
+                at: "/nonexistent-bundle-path",
+                info: [
+                    "CFBundleDisplayName": "Spoof\u{202E}Name",
+                    "CFBundleName": "SafeFallback"
+                ]
+            ),
+            "SafeFallback"
+        )
+        XCTAssertNil(
+            WCAppNames.installedName(
+                at: "/nonexistent-bundle-path",
+                info: ["CFBundleDisplayName": "   \n\t  "]
+            )
+        )
+    }
+
+    func testEffectiveBundleLookupCapAdaptsToVolumeInodeRangeWithinBounds() {
+        XCTAssertEqual(WCPathDiscovery.effectiveBundleLookupCap(discoveredUpper: 0), 5_000_000)
+        XCTAssertEqual(WCPathDiscovery.effectiveBundleLookupCap(discoveredUpper: 1_200_000), 5_000_000)
+        XCTAssertEqual(WCPathDiscovery.effectiveBundleLookupCap(discoveredUpper: 18_500_000), 18_500_000)
+        XCTAssertEqual(WCPathDiscovery.effectiveBundleLookupCap(discoveredUpper: 90_000_000), 50_000_000)
+    }
 }

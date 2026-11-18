@@ -105,7 +105,7 @@ enum WCLaunchServices {
         }
     }
 
-    private static func safeName(_ value: String?) -> String? {
+    static func safeName(_ value: String?) -> String? {
         guard let value else { return nil }
         let normalized = value.precomposedStringWithCanonicalMapping
             .trimmingCharacters(in: .whitespacesAndNewlines)

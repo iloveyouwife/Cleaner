@@ -115,6 +115,14 @@ checks = {
     "Directory recursion closes DIR stream before recursing with depth cap":
         "static let maximumDirectoryDepth = 96" in service
         and "subdirectories.append(name)" in service,
+    "Hidden system services excluded from scanTargetCount to match UI sections":
+        "static let hiddenServiceIDs: Set<String>" in engine
+        and "!isHiddenSystemService($0.bundleID)" in engine
+        and "hiddenDuringScan" in model,
+    "Bundle fallback cap scales with discovered Data volume inode bound":
+        "effectiveBundleLookupCap(discoveredUpper:" in discovery,
+    "App names from Info.plist and App Store pass through safeName":
+        "WCLaunchServices.safeName" in (src / "WCAppNames.swift").read_text(),
 }
 marketing = re.search(r"MARKETING_VERSION:\s*0\.(\d+)\.0", project)
 build = re.search(r"CURRENT_PROJECT_VERSION:\s*(\d+)", project)

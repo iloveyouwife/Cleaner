@@ -21,6 +21,16 @@ struct WCTarget: Identifiable, Hashable {
 /// Skip only manually excluded App containers. /var and /private/var
 /// refer to the same identity, including entries added by UUID.
 enum WCScanExclusions {
+    static let hiddenServiceIDs: Set<String> = [
+        "com.apple.GameOverlayUI", "com.apple.HeadphoneProxService",
+        "com.apple.PassbookUIService", "com.apple.PDUIApp",
+        "com.apple.SIMSetupUIService", "com.apple.webapp"
+    ]
+
+    static func isHiddenSystemService(_ bundleID: String) -> Bool {
+        hiddenServiceIDs.contains(bundleID)
+    }
+
     /// Treat /var and /private/var as the same container in every UI and
     /// backend exclusion operation. Never excludes Cleaner automatically.
     static func normalizedPaths(_ paths: Set<String>) -> Set<String> {
@@ -37,7 +47,9 @@ enum WCScanExclusions {
     }
 
     static func eligibleTargets(_ candidates: [WCTarget], excludedPaths: Set<String>) -> [WCTarget] {
-        filter(candidates, excludedPaths: excludedPaths, includeExcluded: false)
+        filter(candidates, excludedPaths: excludedPaths, includeExcluded: false).filter {
+            !isHiddenSystemService($0.bundleID)
+        }
     }
 
     static func excludedTargets(_ candidates: [WCTarget], excludedPaths: Set<String>) -> [WCTarget] {

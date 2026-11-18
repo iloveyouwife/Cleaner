@@ -48,12 +48,14 @@ enum WCAppNames {
     }
 
     static func savedNames() -> [String: String] {
-        UserDefaults.standard.dictionary(forKey: "wc.verifiedAppStoreNames") as? [String: String] ?? [:]
+        let raw = UserDefaults.standard.dictionary(forKey: "wc.verifiedAppStoreNames") as? [String: String] ?? [:]
+        return raw.compactMapValues { WCLaunchServices.safeName($0) }
     }
 
     static func storeVerifiedNames(_ verified: [String: String]) {
         var names = savedNames()
-        names.merge(verified) { _, new in new }
+        let cleaned = verified.compactMapValues { WCLaunchServices.safeName($0) }
+        names.merge(cleaned) { _, new in new }
         UserDefaults.standard.set(names, forKey: "wc.verifiedAppStoreNames")
     }
 
@@ -79,21 +81,23 @@ enum WCAppNames {
                       returnedID.caseInsensitiveCompare(bundleID) == .orderedSame else { continue }
                 let name = (result["trackName"] as? String)
                     ?? (result["trackCensoredName"] as? String)
-                if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return name
+                if let clean = WCLaunchServices.safeName(name) {
+                    return clean
                 }
             }
         }
         return nil
     }
 
-    private static func installedName(at appPath: String, info: [String: Any]) -> String? {
+    static func installedName(at appPath: String, info: [String: Any]) -> String? {
         let bundle = Bundle(path: appPath)
         let current = bundle?.localizedInfoDictionary ?? [:]
         let dictionaries: [[String: Any]] = [current, info]
         for dictionary in dictionaries {
             for key in ["CFBundleDisplayName", "CFBundleName"] {
-                if let label = dictionary[key] as? String, !label.isEmpty { return label }
+                if let clean = WCLaunchServices.safeName(dictionary[key] as? String) {
+                    return clean
+                }
             }
         }
         return nil
