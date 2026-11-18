@@ -23,7 +23,7 @@
 2. 使用有效证书签署 IPA，确认 App Group entitlement 随签名实际生效。
 3. 在高级设置中选择可访问的专用组，并确认此组**没有被其他 App 共享使用**。
 
-授权暂存会临时替换独占 App Group 中的缓存目录入口。v91 先持久化事务记录，再将现有目录移到同组备份位置；请求结束后恢复。后续已授权请求前可恢复记录、父目录及原目录身份均匹配的中断事务。来源不明的旧版备份、损坏记录或新目录冲突不会被覆盖或删除，授权停止，原有访问诊断日志会说明原因。恢复只处理本工具专用组的暂存入口，不删除链接指向的外部目标。仍须使用没有被其他 App 共享的组。
+授权暂存会临时替换独占 App Group 中的缓存目录入口。当前实现先通过同目录临时文件同步并原子提交（`RENAME_EXCL`）事务记录，再将现有目录移到同组备份位置；请求结束后恢复。后续已授权请求前可恢复记录、父目录及原目录身份均匹配的中断事务。来源不明的旧版备份、损坏记录或新目录冲突不会被覆盖或删除，授权停止，原有访问诊断日志会说明原因。恢复只处理本工具专用组的暂存入口，不删除链接指向的外部目标。仍须使用没有被其他 App 共享的组。
 
 手动添加中的裸 UUID 仅在已发现列表或只读存在性检查可以唯一确认 Application/PluginKitPlugin 类型时解析；遇到权限未知或多个候选时，继续要求来源明确的完整路径。
 
@@ -31,7 +31,7 @@
 
 GitHub Actions 工作流：[Build Cleaner unsigned IPA](../.github/workflows/cleaner-ipa.yml)。
 
-**稳定回退版本：** [Cleaner v0.89.0](https://github.com/iloveyouwife/Cleaner/releases/tag/v0.89.0) 的源码标签和 IPA 保持原样。v90 及 v89 均保留回退包，v91 在现有布局基础上完善发布、身份核验与事务恢复；同 Bundle ID 重装需注意保留你的签名 App Group 配置。
+**稳定回退版本：** [Cleaner v0.89.0](https://github.com/iloveyouwife/Cleaner/releases/tag/v0.89.0) 的源码标签和 IPA 保持原样。v89–v93 均保留回退包，v94 在现有稳定界面基础上完成收敛修复并同步 `main`；同 Bundle ID 重装需注意保留你的签名 App Group 配置。
 
 `main` 是当前稳定源码。自动化使用 Xcode 27 编译未签名 IPA，并在 Actions 保留构建产物。新版本发布时，在 `project.yml` 中将 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 分别递增为 `0.N.0` 和 `N`；提交到 `main` 后，流水线完成源码与界面保护检查、Release 编译、全部逻辑和 UI 测试，并确认提交仍为当前 main 且标签尚不存在，才会自动创建 `v0.N.0` 标签并将 IPA 发布到 [Releases](https://github.com/iloveyouwife/Cleaner/releases)。已发布版本不会被自动覆盖。
 

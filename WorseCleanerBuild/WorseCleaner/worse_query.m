@@ -348,7 +348,7 @@ int64_t worse_query(NSString *target, NSString *group, bool alt_flags, bool crea
         return WQCacheStageLastError();
     }
 
-    return handle;
+    return handle < 0 ? -7 : handle;
 }
 
 // You should probably call this when you're done

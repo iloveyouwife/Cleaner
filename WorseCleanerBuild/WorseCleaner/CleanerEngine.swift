@@ -73,6 +73,17 @@ enum WCIdentitySource: String {
     case unresolved = "未识别"
 }
 
+enum WCIdentityBucket: Equatable {
+    case named
+    case bundleIDOnly
+    case unresolved
+
+    static func classify(target: WCTarget, source: WCIdentitySource) -> Self {
+        guard source != .unresolved else { return .unresolved }
+        return target.name != target.bundleID ? .named : .bundleIDOnly
+    }
+}
+
 enum WCFailure: LocalizedError {
     case invalidTarget
     case noAppGroup
@@ -261,10 +272,26 @@ enum WCFileAccess {
         return try? WCTarget(bundleID: bundleID, name: name, path: target.path)
     }
 
+    static func decodeMetadataPlist(
+        byteCount: Int, readChunk: (inout [UInt8], Int) -> Int
+    ) -> (plist: [String: Any]?, code: Int32?) {
+        guard byteCount > 0, byteCount <= 131_072 else { return (nil, nil) }
+        var readFailure: Int32?
+        guard let data = WCLaunchServices.readStoreBytes(byteCount: byteCount, readChunk: { buffer, requested in
+            let count = readChunk(&buffer, requested)
+            if count < 0 && errno != EINTR { readFailure = errno }
+            return count
+        }) else {
+            return (nil, readFailure)
+        }
+        let plist = try? PropertyListSerialization.propertyList(
+            from: data, options: [], format: nil
+        ) as? [String: Any]
+        return (plist, nil)
+    }
+
     private static func metadataPlist(_ target: WCTarget) -> (plist: [String: Any]?, code: Int32?) {
         let filename = ".com.apple.mobile_container_manager.metadata.plist"
-        // Try both a fully qualified path and a descriptor-relative lookup.
-        // iOS can impose different sandbox checks on a hidden root entry.
         var file = open(target.path + "/" + filename, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         var errorCode: Int32? = file < 0 ? errno : nil
         if file < 0 {
@@ -278,23 +305,15 @@ enum WCFileAccess {
         guard file >= 0 else { return (nil, errorCode) }
         defer { close(file) }
         var statInfo = stat()
-        guard fstat(file, &statInfo) == 0, (statInfo.st_mode & S_IFMT) == S_IFREG,
-              statInfo.st_size <= 131_072 else { return (nil, nil) }
-
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while data.count < 131_072 {
-            let size = read(file, &buffer, min(buffer.count, 131_072 - data.count))
-            if size <= 0 { break }
-            data.append(contentsOf: buffer.prefix(size))
+        guard fstat(file, &statInfo) == 0 else { return (nil, errno) }
+        guard (statInfo.st_mode & S_IFMT) == S_IFREG,
+              statInfo.st_size > 0, statInfo.st_size <= 131_072 else { return (nil, nil) }
+        return decodeMetadataPlist(byteCount: Int(statInfo.st_size)) { buffer, count in
+            Darwin.read(file, &buffer, count)
         }
-        let plist = try? PropertyListSerialization.propertyList(
-            from: data, options: [], format: nil
-        ) as? [String: Any]
-        return (plist, nil)
     }
 
-    private static func inspectIdentity(
+    static func inspectIdentity(
         _ target: WCTarget, knownNames: [String: String],
         knownContainers: [String: String]
     ) -> (WCTarget, WCIdentitySource, Int32?) {
@@ -303,6 +322,7 @@ enum WCFileAccess {
         let catalogID = knownContainers[normalized]
         let originalID = isBundleIdentifier(target.bundleID) ? target.bundleID : nil
         func unknown() -> WCTarget {
+            if target.bundleID == "manual" { return target }
             let uuid = URL(fileURLWithPath: target.path).lastPathComponent
             let title = target.path.contains("/PluginKitPlugin/") ? "扩展容器 " : "App 容器 "
             return (try? WCTarget(bundleID: "容器 " + String(uuid.prefix(8)),

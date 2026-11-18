@@ -18,5 +18,6 @@ NSString * _Nullable WCFindLaunchServicesStoreQuick(void);
 // Fast database discovery must not silently discard previously known UUID
 // containers that LaunchServices does not register.
 NSDictionary<NSString *, NSArray<NSString *> *> * _Nullable WCReadCachedDataContainers(void);
+NSDictionary<NSString *, NSArray<NSString *> *> * _Nullable WCReadCachedDataContainersAtPath(NSString * _Nullable path);
 
 NS_ASSUME_NONNULL_END

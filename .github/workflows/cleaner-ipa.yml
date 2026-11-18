@@ -270,7 +270,8 @@ jobs:
           fi
           asset="Cleaner-v${version}-unsigned.ipa"
           cp WorseCleaner-iOS27-unsigned.ipa "$asset"
-          gh release create "$tag" "$asset" \
+          shasum -a 256 "$asset" > "${asset}.sha256"
+          gh release create "$tag" "$asset" "${asset}.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Cleaner v${version}" \
             --target "$GITHUB_SHA" \

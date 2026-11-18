@@ -68,19 +68,37 @@ enum LimitedCleanerService {
     /// This explicit allowlist is the product boundary. Do not add global `/var`
     /// paths here: this cleaner is intentionally limited to per-app disposable data.
     static let allowedDirectoryComponents = [["Library", "Caches"], ["tmp"]]
+    static let maximumDirectoryDepth = 96
 
     static func scan(
         containerURL: URL,
         rootValidator: ContainerRootValidator
     ) throws -> LimitedCleanerUsage {
-        try withValidatedRootDescriptor(containerURL, rootValidator: rootValidator) { rootDescriptor in
+        try scan(
+            containerURL: containerURL,
+            maximumDepth: maximumDirectoryDepth,
+            rootValidator: rootValidator
+        )
+    }
+
+    static func scan(
+        containerURL: URL,
+        maximumDepth: Int,
+        rootValidator: ContainerRootValidator
+    ) throws -> LimitedCleanerUsage {
+        guard maximumDepth > 0 else {
+            throw LimitedCleanerError.inaccessible("目录层级过深", ELOOP)
+        }
+        return try withValidatedRootDescriptor(containerURL, rootValidator: rootValidator) { rootDescriptor in
             let cache = try scanAllowedDirectory(
                 components: allowedDirectoryComponents[0],
-                rootDescriptor: rootDescriptor
+                rootDescriptor: rootDescriptor,
+                maximumDepth: maximumDepth
             )
             let temporary = try scanAllowedDirectory(
                 components: allowedDirectoryComponents[1],
-                rootDescriptor: rootDescriptor
+                rootDescriptor: rootDescriptor,
+                maximumDepth: maximumDepth
             )
             return LimitedCleanerUsage(
                 cacheBytes: cache.bytes,
@@ -107,10 +125,15 @@ enum LimitedCleanerService {
     // open must not lose the count of already-unlinked files.
     static func clean(
         containerURL: URL,
+        maximumDepth: Int = maximumDirectoryDepth,
         rootValidator: ContainerRootValidator,
         beforeOpeningDirectory: ([String]) throws -> Void
     ) throws -> LimitedCleanerResult {
-        let before = try scan(containerURL: containerURL, rootValidator: rootValidator)
+        let before = try scan(
+            containerURL: containerURL,
+            maximumDepth: maximumDepth,
+            rootValidator: rootValidator
+        )
         var removal = RemovalSummary()
 
         try withValidatedRootDescriptor(containerURL, rootValidator: rootValidator) { rootDescriptor in
@@ -124,7 +147,12 @@ enum LimitedCleanerService {
                         continue
                     }
                     defer { close(directoryDescriptor) }
-                    removeDirectoryContents(directoryDescriptor, summary: &removal)
+                    removeDirectoryContents(
+                        directoryDescriptor,
+                        summary: &removal,
+                        depth: 0,
+                        maximumDepth: maximumDepth
+                    )
                 } catch {
                     // Stop conservatively; do not attempt further deletions.
                     // The post-cleanup scan below verifies what was removed.
@@ -139,7 +167,11 @@ enum LimitedCleanerService {
             removed: removal.removedItemCount,
             failures: removal.failedItemCount
         ) {
-            try scan(containerURL: containerURL, rootValidator: rootValidator)
+            try scan(
+                containerURL: containerURL,
+                maximumDepth: maximumDepth,
+                rootValidator: rootValidator
+            )
         }
     }
 
@@ -191,7 +223,8 @@ enum LimitedCleanerService {
 
     private static func scanAllowedDirectory(
         components: [String],
-        rootDescriptor: Int32
+        rootDescriptor: Int32,
+        maximumDepth: Int
     ) throws -> ScanSummary {
         guard let directoryDescriptor = try openDirectoryStrict(
             components: components,
@@ -200,7 +233,7 @@ enum LimitedCleanerService {
             return .empty
         }
         defer { close(directoryDescriptor) }
-        return try scanDirectory(directoryDescriptor)
+        return try scanDirectory(directoryDescriptor, depth: 0, maximumDepth: maximumDepth)
     }
 
     private static func openDirectoryStrict(
@@ -228,33 +261,52 @@ enum LimitedCleanerService {
         return descriptor
     }
 
-    private static func scanDirectory(_ directoryDescriptor: Int32) throws -> ScanSummary {
+    private static func scanDirectory(
+        _ directoryDescriptor: Int32,
+        depth: Int,
+        maximumDepth: Int
+    ) throws -> ScanSummary {
+        guard depth < maximumDepth else {
+            throw LimitedCleanerError.inaccessible("目录层级过深", ELOOP)
+        }
         var result = ScanSummary.empty
+        var subdirectories: [String] = []
         try forEachEntryStrict(in: directoryDescriptor) { name, information in
             switch information.st_mode & S_IFMT {
             case S_IFREG:
                 result.bytes += max(0, Int64(information.st_size))
                 result.itemCount += 1
             case S_IFDIR:
-                let childDescriptor = name.withCString {
-                    openat(
-                        directoryDescriptor,
-                        $0,
-                        O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
-                    )
-                }
-                guard childDescriptor >= 0 else {
-                    if errno == ENOENT { return }
-                    throw LimitedCleanerError.inaccessible(name, errno)
-                }
-                defer { close(childDescriptor) }
-                let nested = try scanDirectory(childDescriptor)
-                result.bytes += nested.bytes
-                result.itemCount += nested.itemCount
+                subdirectories.append(name)
             default:
                 // Symbolic links, sockets and device nodes are never followed or counted.
                 break
             }
+        }
+        for name in subdirectories {
+            let childDescriptor = name.withCString {
+                openat(
+                    directoryDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+                )
+            }
+            guard childDescriptor >= 0 else {
+                if errno == ENOENT { continue }
+                throw LimitedCleanerError.inaccessible(name, errno)
+            }
+            let nested: ScanSummary
+            do {
+                nested = try scanDirectory(
+                    childDescriptor, depth: depth + 1, maximumDepth: maximumDepth
+                )
+                close(childDescriptor)
+            } catch {
+                close(childDescriptor)
+                throw error
+            }
+            result.bytes += nested.bytes
+            result.itemCount += nested.itemCount
         }
         return result
     }
@@ -301,8 +353,15 @@ enum LimitedCleanerService {
 
     private static func removeDirectoryContents(
         _ directoryDescriptor: Int32,
-        summary: inout RemovalSummary
+        summary: inout RemovalSummary,
+        depth: Int = 0,
+        maximumDepth: Int = maximumDirectoryDepth
     ) {
+        guard depth < maximumDepth else {
+            summary.failedItemCount += 1
+            return
+        }
+        var subdirectories: [String] = []
         let traversalFailures = forEachEntry(in: directoryDescriptor) { name, information in
             switch information.st_mode & S_IFMT {
             case S_IFREG:
@@ -313,34 +372,43 @@ enum LimitedCleanerService {
                     summary.failedItemCount += 1
                 }
             case S_IFDIR:
-                let childDescriptor = name.withCString {
-                    openat(
-                        directoryDescriptor,
-                        $0,
-                        O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
-                    )
-                }
-                guard childDescriptor >= 0 else {
-                    if errno != ENOENT {
-                        summary.failedItemCount += 1
-                    }
-                    return
-                }
-                removeDirectoryContents(childDescriptor, summary: &summary)
-                close(childDescriptor)
-
-                let result = name.withCString {
-                    unlinkat(directoryDescriptor, $0, AT_REMOVEDIR)
-                }
-                if result != 0 && errno != ENOENT {
-                    summary.failedItemCount += 1
-                }
+                subdirectories.append(name)
             default:
                 // Preserve and never follow symbolic links or special nodes.
                 break
             }
         }
         summary.failedItemCount += traversalFailures
+
+        for name in subdirectories {
+            let childDescriptor = name.withCString {
+                openat(
+                    directoryDescriptor,
+                    $0,
+                    O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+                )
+            }
+            guard childDescriptor >= 0 else {
+                if errno != ENOENT {
+                    summary.failedItemCount += 1
+                }
+                continue
+            }
+            removeDirectoryContents(
+                childDescriptor,
+                summary: &summary,
+                depth: depth + 1,
+                maximumDepth: maximumDepth
+            )
+            close(childDescriptor)
+
+            let result = name.withCString {
+                unlinkat(directoryDescriptor, $0, AT_REMOVEDIR)
+            }
+            if result != 0 && errno != ENOENT {
+                summary.failedItemCount += 1
+            }
+        }
     }
 
     // Deletion is best-effort; unlike before, any failed directory iteration

@@ -103,6 +103,18 @@ checks = {
         and "model.apps.reduce" not in ui,
     "Unit test suite included in scheme":
         "CleanerUnitTests: [test]" in project and "- CleanerUnitTests" in project,
+    "Extension consume error does not collide with missing App Group":
+        "return handle < 0 ? -7 : handle;" in query,
+    "Unresolved extension containers are not counted as named apps":
+        "WCIdentityBucket.classify" in model and "enum WCIdentityBucket" in engine,
+    "Unresolved manual containers retain manual identity":
+        'if target.bundleID == "manual" { return target }' in engine,
+    "Cached container index validates volume number types":
+        '![saved[@"fs0"] isKindOfClass:NSNumber.class]' in discovery_objc
+        and '![saved[@"fs1"] isKindOfClass:NSNumber.class]' in discovery_objc,
+    "Directory recursion closes DIR stream before recursing with depth cap":
+        "static let maximumDirectoryDepth = 96" in service
+        and "subdirectories.append(name)" in service,
 }
 marketing = re.search(r"MARKETING_VERSION:\s*0\.(\d+)\.0", project)
 build = re.search(r"CURRENT_PROJECT_VERSION:\s*(\d+)", project)

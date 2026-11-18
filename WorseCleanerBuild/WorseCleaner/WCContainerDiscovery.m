@@ -344,14 +344,15 @@ NSDictionary<NSString *, id> *WCDiscoverDataContainers(
     };
 }
 
-NSDictionary<NSString *, NSArray<NSString *> *> *WCReadCachedDataContainers(void) {
+NSDictionary<NSString *, NSArray<NSString *> *> *WCReadCachedDataContainersAtPath(NSString *path) {
     fsid_t volume = {0};
     uint64_t probe = 0;
-    if (!WCProbeDataVolume(&volume, &probe)) return nil;
-    NSString *path = WCIndexPath();
-    NSDictionary *saved = path ? [NSDictionary dictionaryWithContentsOfFile:path] : nil;
+    if (!path.length || !WCProbeDataVolume(&volume, &probe)) return nil;
+    NSDictionary *saved = [NSDictionary dictionaryWithContentsOfFile:path];
     if (![saved[@"version"] isKindOfClass:NSNumber.class] ||
         [saved[@"version"] integerValue] != 1 ||
+        ![saved[@"fs0"] isKindOfClass:NSNumber.class] ||
+        ![saved[@"fs1"] isKindOfClass:NSNumber.class] ||
         [saved[@"fs0"] intValue] != volume.val[0] ||
         [saved[@"fs1"] intValue] != volume.val[1] ||
         ![saved[@"apps"] isKindOfClass:NSDictionary.class] ||
@@ -362,4 +363,8 @@ NSDictionary<NSString *, NSArray<NSString *> *> *WCReadCachedDataContainers(void
         @"apps": [apps.allKeys sortedArrayUsingSelector:@selector(compare:)],
         @"extensions": [extensions.allKeys sortedArrayUsingSelector:@selector(compare:)]
     };
+}
+
+NSDictionary<NSString *, NSArray<NSString *> *> *WCReadCachedDataContainers(void) {
+    return WCReadCachedDataContainersAtPath(WCIndexPath());
 }

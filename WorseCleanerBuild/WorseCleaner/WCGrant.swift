@@ -14,36 +14,49 @@ enum WCGrant {
     static func readablePath(_ path: String, groupID: String) -> Int64 {
         lock.lock()
         defer { lock.unlock() }
+        return readablePathLocked(
+            path, groupID: groupID, preferred: &preferredAlternative,
+            issueToken: { targetPath, group, alt in worse_query(targetPath, group, alt, true) },
+            probeOpen: { targetPath in
+                let fd = open(targetPath, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+                if fd >= 0 {
+                    close(fd)
+                    return (true, 0)
+                }
+                return (false, errno)
+            },
+            releaseToken: { worse_query_release($0) }
+        )
+    }
+
+    static func readablePathLocked(
+        _ path: String, groupID: String, preferred: inout Bool?,
+        issueToken: (String, String, Bool) -> Int64,
+        probeOpen: (String) -> (opened: Bool, error: Int32),
+        releaseToken: (Int64) -> Void
+    ) -> Int64 {
+        var preferredAlternative = preferred
+        defer { preferred = preferredAlternative }
 
         let first = preferredAlternative ?? false
         var lastError: Int64 = -8
         for alternative in [first, !first] {
-            let handle = worse_query(path, groupID, alternative, true)
+            let handle = issueToken(path, groupID, alternative)
             guard handle > 0 else {
                 lastError = handle
-                // These indicate an unavailable App Group or query library;
-                // changing the query flags cannot repair either condition.
                 if handle == -1 || handle == -2 || handle == -4 || (-12 ... -9).contains(handle) { return handle }
                 continue
             }
 
-            let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-            if fd >= 0 {
-                close(fd)
+            let probe = probeOpen(path)
+            if probe.opened {
                 preferredAlternative = alternative
                 return handle
-            } else if errno == EPERM {
-                // This token was consumed, but sandbox access is still denied.
-                // Release it and retry with the other supported query flags.
-                worse_query_release(handle)
+            } else if probe.error == EPERM {
+                releaseToken(handle)
                 lastError = -8
                 continue
             }
-            // EACCES is a filesystem permission failure, not a token failure.
-            // Actual directory readability is separately enforced by the
-            // existing scan/cleanup validators.
-            // EACCES can be a filesystem/ACL denial even after an extension
-            // is granted. Do not treat it as a verified preferred flag.
             return handle
         }
         return lastError

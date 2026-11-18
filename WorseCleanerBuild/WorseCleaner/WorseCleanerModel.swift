@@ -367,11 +367,15 @@ final class WorseCleanerModel: ObservableObject {
                     results[target.id] = inspection.usage
                     identities[target.id] = inspection.target
                     identityCounts[inspection.identitySource, default: 0] += 1
-                    if inspection.target.name != inspection.target.bundleID &&
-                        !inspection.target.name.hasPrefix("App 容器 ") {
+                    switch WCIdentityBucket.classify(
+                        target: inspection.target, source: inspection.identitySource
+                    ) {
+                    case .named:
                         namedCount += 1
-                    } else if inspection.identitySource != .unresolved {
+                    case .bundleIDOnly:
                         readableButUnnamed += 1
+                    case .unresolved:
+                        break
                     }
                     if let code = inspection.metadataErrno {
                         metadataErrors[code, default: 0] += 1

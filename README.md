@@ -42,6 +42,6 @@
 
 本仓库当前仅维护 Cleaner 应用源码、测试和发行流程。当前发行说明见 [RELEASE_NOTES.md](WorseCleanerBuild/RELEASE_NOTES.md)，完整历史见 [CHANGELOG.md](WorseCleanerBuild/CHANGELOG.md)。
 
-v91 保留 v90 的首页、搜索、键盘与滚动界面，完善容器归属核验、旧排除记录管理、UUID 输入及专用组暂存恢复。清理结果中的减少量是缓存文件逻辑大小差，设备实际可用容量可能受其他进程和仍被占用的文件影响。
+v94 保留 v90 至今稳定的首页、搜索、键盘与滚动界面，收敛完善底层授权返回码去冲突、扩展容器识别统计、手动容器持久身份、本地索引类型校验、元数据读取中断重试及深层目录描述符控制，并将最新稳定版同步回 `main`。清理结果中的减少量是缓存文件逻辑大小差，设备实际可用容量可能受其他进程和仍被占用的文件影响。
 
 Cleaner 的缓存访问部分参考了 [forcequitOS/worse_query](https://github.com/forcequitOS/worse_query)、[YangJiiii/3105](https://github.com/YangJiiii/3105)；容器发现、增量索引及 LaunchServices CSStore2 解析思路参考并适配了 [kolbicz/WQFiles](https://github.com/kolbicz/WQFiles)。保留原始授权和署名；详见 [GPL-3.0-or-later 许可证](WorseCleanerBuild/LICENSE)。

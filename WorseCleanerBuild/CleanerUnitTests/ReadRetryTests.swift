@@ -52,4 +52,34 @@ final class ReadRetryTests: XCTestCase {
         XCTAssertNil(WCLaunchServices.readStoreBytes(byteCount: 64 * 1024 * 1024 + 1) { _, _ in calls += 1; return 0 })
         XCTAssertEqual(calls, 0)
     }
+
+    func testMetadataPlistDecodeRetriesEINTRAndPreservesReadErrno() throws {
+        let encoded = try PropertyListSerialization.data(
+            fromPropertyList: ["MCMMetadataIdentifier": "com.example.demo"],
+            format: .binary, options: 0
+        )
+        let bytes = Array(encoded)
+        var calls = 0
+        var cursor = 0
+        let decoded = WCFileAccess.decodeMetadataPlist(byteCount: bytes.count) { buffer, requested in
+            calls += 1
+            if calls == 1 {
+                errno = EINTR
+                return -1
+            }
+            let count = min(16, min(requested, bytes.count - cursor))
+            for i in 0..<count { buffer[i] = bytes[cursor + i] }
+            cursor += count
+            return count
+        }
+        XCTAssertEqual(decoded.plist?["MCMMetadataIdentifier"] as? String, "com.example.demo")
+        XCTAssertNil(decoded.code)
+
+        let denied = WCFileAccess.decodeMetadataPlist(byteCount: bytes.count) { _, _ in
+            errno = EPERM
+            return -1
+        }
+        XCTAssertNil(denied.plist)
+        XCTAssertEqual(denied.code, EPERM)
+    }
 }
